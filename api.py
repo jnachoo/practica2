@@ -6,13 +6,18 @@ import asyncio
 
 # Configuración de la base de datos
 DATABASE_URL = "postgresql://jpailamilla:practica.01%23@192.168.74.99:5432/ants_bl"
+#DATABASE_URL = "postgresql://postgres:clave123@localhost:5433/postgres"
 database = Database(DATABASE_URL)
 
 app = FastAPI()
 
 @app.get("/")
 def leer_raiz():
-    return ("BRAINS")
+    
+    return {
+        "mensaje":"Bienvenido a Brains",
+        "info":ver_info()
+    }
 
 # Modelo para el CRUD 
 class Item(BaseModel):
@@ -32,19 +37,58 @@ async def shutdown():
 # Endpoints API 
 
 # 1. Leer todos los registros / FUNCIONA
-@app.get("/bls/{fecha}")
-async def bls_fecha(fecha: str):
-
-    query = """
-                select b.bl_code as Codigo_bl, n.nombre as Naviera , b.fecha_bl as Fecha_bl,
+@app.get("/bls")
+async def ver_bls():
+    query = """select coalesce(b.bl_code, 'no se encuentra') as Codigo_bl,
+                coalesce (n.nombre, 'no se encuentra') as Naviera , coalesce (c.code, 'no se encuetra') as codigo_container,
+                coalesce (dc.nombre_type ||' '|| dc.dryreef, 'no se encuentra') as tipo,
+                coalesce (dc.nombre_size, 'no se encuentra') as size,
                 case
                     when b.etapa = 1 then 'exportacion'
                     when b.etapa = 2 then 'importacion'
                     else 'otro'
-                end as etapa
+                end as etapa,
+                coalesce(c.pol, 'no se encuentra') as pol, coalesce(c.pod, 'no se encuentra') as pod,
+                coalesce(b.mercado, 'no se encuentra') as mercado,
+                coalesce(b.fecha_bl::text , 'no se encuentra') as Fecha_bl
                 from bls b 
                 join navieras n 
                 on n.id = b.naviera_id 
+                join containers c 
+                on c.bl_id = b.id 
+                join dict_containers dc 
+                on dc.size = c.size and dc.type = c.type """
+    result = await database.fetch_all(query=query)
+    
+    # Si no se encuentra la naviera, devolver el listado completo con un mensaje
+    if not result:
+        ver_info()
+        raise HTTPException(status_code=404, detail="En estos momentos no se puede realizar esta operación")
+    return result
+
+@app.get("/bls/fecha/{fecha}")
+async def bls_fecha(fecha: str):
+
+    query = """
+                select coalesce(b.bl_code, 'no se encuentra') as Codigo_bl,
+                coalesce (n.nombre, 'no se encuentra') as Naviera , coalesce (c.code, 'no se encuetra') as codigo_container,
+                coalesce (dc.nombre_type ||' '|| dc.dryreef, 'no se encuentra') as tipo,
+                coalesce (dc.nombre_size, 'no se encuentra') as size,
+                case
+                    when b.etapa = 1 then 'exportacion'
+                    when b.etapa = 2 then 'importacion'
+                    else 'otro'
+                end as etapa,
+                coalesce(c.pol, 'no se encuentra') as pol,coalesce(c.pod, 'no se encuentra') as pod,
+                coalesce(b.mercado, 'no se encuentra') as mercado,
+                coalesce(b.fecha_bl::text , 'no se encuentra') as Fecha_bl
+                from bls b 
+                join navieras n 
+                on n.id = b.naviera_id 
+                join containers c 
+                on c.bl_id = b.id 
+                join dict_containers dc 
+                on dc.size = c.size and dc.type = c.type 
                 where 1=1
             """
     values = {}
@@ -72,18 +116,113 @@ async def bls_fecha(fecha: str):
         
     query += " ORDER BY b.fecha_bl;"
     results = await database.fetch_all(query=query, values=values)
+    if not results:
+        ver_info()
+        raise HTTPException(status_code=404, detail="bls no encontrados")
     return {
         "mensaje":mensaje,
         "results":results
         }
 
-# 2. Ver container por ID
-@app.get("/container/id/{container_id}")
-async def container_id(container_id: int):
-    query = "SELECT * FROM containers WHERE id_container = :container_id;"
-    result = await database.fetch_all(query=query, values={"container_id": container_id})
+@app.get("/bls/id/{id}")
+async def ver_bls_id(id:int):
+    query = """select coalesce(b.bl_code, 'no se encuentra') as Codigo_bl,
+                coalesce (n.nombre, 'no se encuentra') as Naviera , coalesce (c.code, 'no se encuetra') as codigo_container,
+                coalesce (dc.nombre_type ||' '|| dc.dryreef, 'no se encuentra') as tipo,
+                coalesce (dc.nombre_size, 'no se encuentra') as size,
+                case
+                    when b.etapa = 1 then 'exportacion'
+                    when b.etapa = 2 then 'importacion'
+                    else 'otro'
+                end as etapa,
+                coalesce(c.pol, 'no se encuentra') as pol, coalesce(c.pod, 'no se encuentra') as pod,
+                coalesce(b.mercado, 'no se encuentra') as mercado,
+                coalesce(b.fecha_bl::text , 'no se encuentra') as Fecha_bl
+                from bls b 
+                join navieras n 
+                on n.id = b.naviera_id 
+                join containers c 
+                on c.bl_id = b.id 
+                join dict_containers dc 
+                on dc.size = c.size and dc.type = c.type
+                where b.id = :id;"""
+    result = await database.fetch_all(query=query, values={"id": id})
+    
+    # Si no se encuentra la naviera, devolver el listado completo con un mensaje
     if not result:
-        raise HTTPException(status_code=404, detail="ID de container no encontrado")
+        ver_info()
+        raise HTTPException(status_code=404, detail="ID de bl no encontrado")
+    return result
+
+@app.get("/bls/code/{code}")
+async def ver_bls_id(code:str):
+    query = """select coalesce(b.bl_code, 'no se encuentra') as Codigo_bl,
+                coalesce (n.nombre, 'no se encuentra') as Naviera , coalesce (c.code, 'no se encuetra') as codigo_container,
+                coalesce (dc.nombre_type ||' '|| dc.dryreef, 'no se encuentra') as tipo,
+                coalesce (dc.nombre_size, 'no se encuentra') as size,
+                case
+                    when b.etapa = 1 then 'exportacion'
+                    when b.etapa = 2 then 'importacion'
+                    else 'otro'
+                end as etapa,
+                coalesce(c.pol, 'no se encuentra') as pol,coalesce(c.pod, 'no se encuentra') as pod,
+                coalesce(b.mercado, 'no se encuentra') as mercado,
+                coalesce(b.fecha_bl::text , 'no se encuentra') as Fecha_bl
+                from bls b 
+                join navieras n 
+                on n.id = b.naviera_id 
+                join containers c 
+                on c.bl_id = b.id 
+                join dict_containers dc 
+                on dc.size = c.size and dc.type = c.type
+                where b.bl_code = :code;"""
+    result = await database.fetch_all(query=query, values={"code": code})
+    
+    # Si no se encuentra la naviera, devolver el listado completo con un mensaje
+    if not result:
+        ver_info()
+        raise HTTPException(status_code=404, detail="Code de bl no encontrado")
+    return result
+
+@app.get("/requests")
+async def requests():
+    query = """
+            select b.id, b.bl_code ,bsd.state_description as caso_bl,b.fecha_bl, 
+            rcd.case_description as caso_request , date(r.timestamp) as fecha_request
+            from bls b
+            join bl_state_dictionary bsd 
+            on bsd.state_code = b.state_code
+            join requests r 
+            on r.bl_id = b.id 
+            join request_case_dictionary rcd 
+            on rcd.case_code = r.response_code
+            order by b.fecha_bl desc;
+            """
+    result = await database.fetch_all(query=query)
+    if not result:
+        ver_info()
+        raise HTTPException(status_code=404, detail="La ruta no existe")
+    return result
+
+# 2. Ver requests
+@app.get("/requests/{bl_id}")
+async def requests_bl_id(bl_id: int):
+    query = """
+            select b.id, b.bl_code ,bsd.state_description as caso_bl,b.fecha_bl, 
+            rcd.case_description as caso_request , date(r.timestamp) as fecha_request
+            from bls b
+            join bl_state_dictionary bsd 
+            on bsd.state_code = b.state_code
+            join requests r 
+            on r.bl_id = b.id 
+            join request_case_dictionary rcd 
+            on rcd.case_code = r.response_code
+            where b.id = :id;
+            """
+    result = await database.fetch_all(query=query, values={"id": bl_id})
+    if not result:
+        ver_info()
+        raise HTTPException(status_code=404, detail="ID de bl no encontrado")
     return result
 
 # 3. Ver container por code
@@ -172,7 +311,22 @@ async def naviera(naviera_id: int):
     # Ejecución de la consulta
     result = await database.fetch_one(query=query, values={"naviera_id": naviera_id})
     if not result:
-        raise HTTPException(status_code=404, detail="Item no encontrado")
+        ver_info()
+        raise HTTPException(status_code=404, detail="Naviera no encontrada")
 
     return result
+
+# 4. Ver informacion
+@app.get("/info")
+def ver_info():
+    mensaje = {
+        "1.":"Estas son las rutas relacionadas a bls",
+        "1.0":"/bls",
+        "1.1":"/bls/fecha/escribir_fecha",
+        "1.2":"/bls/id/escribir_id",
+        "1.3":"/bls/code/escribir_code",
+        "2.":"Estas son las rutas relacionadas a requests",
+        "2.0":"/requests"
+    }
+    return mensaje
 
