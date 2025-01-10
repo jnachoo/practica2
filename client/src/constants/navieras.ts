@@ -1,0 +1,17 @@
+export const NAVIERAS = [
+    { id: '1', name: 'Maersk' },
+    { id: '2', name: 'MSC' },
+    { id: '3', name: 'CMA CGM' },
+    { id: '4', name: 'Hapag-Lloyd' },
+    { id: '5', name: 'ONE' },
+    { id: '6', name: 'COSCO' },
+    { id: '7', name: 'Evergreen' },
+    { id: '8', name: 'APL' },
+    { id: '9', name: 'ZIM' },
+    { id: '10', name: 'OOCL' },
+    { id: '11', name: 'NYK Line' },
+    { id: '12', name: 'KMTC' },
+    { id: '13', name: 'PIL' },
+    { id: '14', name: 'MCC Transport' },
+    { id: '15', name: 'SM Line' },
+  ];
