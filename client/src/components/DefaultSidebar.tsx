@@ -9,10 +9,10 @@ export function DefaultSidebar() {
   // Hook de react-router-dom para obtener la información de la ruta actual.
 
   const Menus = [
-    { title: "Dashboard", src: "dashboard", route: "/" },
-    { title: "BLs", src: "notepad", route: "/BLS" },
-    { title: "PageExample", src: "loader", gap: true, route: "/PageExample" },
-    { title: "Configuracion (aun no implementado)", src: "cog", route: "/Configuracion" },
+    { title: "Dashboard", src: "../assets/dashboard", route: "/" },
+    { title: "BLs", src: "../assets/notepad", route: "/BLs" },
+    { title: "PageExample", src: "../assets/loader", gap: true, route: "/PageExample" },
+    { title: "Configuracion (aun no implementado)", src: "../assets/cog", route: "/Configuracion" },
   ]; 
   // Array de objetos para definir los elementos del menú. Cada objeto contiene:
   // - `title`: El nombre que se muestra.
