@@ -121,15 +121,27 @@ async def bls_fecha(fecha: str):
 
 @app.get("/bls/id/{id}")
 async def ver_bls_id(id:int):
-    query = """  
-            select b.id,b.code,e.nombre,n.nombre,c.size,c.type,c.contenido,t.orden,t.terminal ,t.status ,p.locode,p.lugar ,t.fecha from bls b 
-            join etapa e on e.id =b.id_etapa
-            join tracking t on t.id_bl = b.id 
-            join paradas p on p.id = t.id_parada 
-            join container_viaje cv on cv.id_bl = b.id 
-            join containers c on c.id =cv.id_container 
-            join navieras n on n.id =b.id_naviera 
-            where b.id = :id;    
+    query = """   
+            select coalesce(b.bl_code, 'no se encuentra') as Codigo_bl,
+                coalesce (n.nombre, 'no se encuentra') as Naviera , coalesce (c.code, 'no se encuetra') as codigo_container,
+                coalesce (dc.nombre_type ||' '|| dc.dryreef, 'no se encuentra') as tipo,
+                coalesce (dc.nombre_size, 'no se encuentra') as size,
+                case
+                    when b.etapa = 1 then 'exportacion'
+                    when b.etapa = 2 then 'importacion'
+                    else 'otro'
+                end as etapa,
+                coalesce(c.pol, 'no se encuentra') as pol, coalesce(c.pod, 'no se encuentra') as pod,
+                coalesce(b.mercado, 'no se encuentra') as mercado,
+                coalesce(b.fecha_bl::text , 'no se encuentra') as Fecha_bl
+                from bls b 
+                join navieras n 
+                on n.id = b.naviera_id 
+                join containers c 
+                on c.bl_id = b.id 
+                join dict_containers dc 
+                on dc.size = c.size and dc.type = c.type
+                where b.id = :id;
             """
     result = await database.fetch_all(query=query, values={"id": id})
     
@@ -142,13 +154,25 @@ async def ver_bls_id(id:int):
 @app.get("/bls/code/{code}")
 async def ver_bls_id(code:str):
     query = """
-                select b.id,b.code,e.nombre,n.nombre,c.size,c.type,c.contenido,t.orden,t.terminal ,t.status ,p.locode,p.lugar ,t.fecha from bls b 
-                join etapa e on e.id =b.id_etapa
-                join tracking t on t.id_bl = b.id 
-                join paradas p on p.id = t.id_parada 
-                join container_viaje cv on cv.id_bl = b.id 
-                join containers c on c.id =cv.id_container 
-                join navieras n on n.id =b.id_naviera 
+                select coalesce(b.bl_code, 'no se encuentra') as Codigo_bl,
+                coalesce (n.nombre, 'no se encuentra') as Naviera , coalesce (c.code, 'no se encuetra') as codigo_container,
+                coalesce (dc.nombre_type ||' '|| dc.dryreef, 'no se encuentra') as tipo,
+                coalesce (dc.nombre_size, 'no se encuentra') as size,
+                case
+                    when b.etapa = 1 then 'exportacion'
+                    when b.etapa = 2 then 'importacion'
+                    else 'otro'
+                end as etapa,
+                coalesce(c.pol, 'no se encuentra') as pol, coalesce(c.pod, 'no se encuentra') as pod,
+                coalesce(b.mercado, 'no se encuentra') as mercado,
+                coalesce(b.fecha_bl::text , 'no se encuentra') as Fecha_bl
+                from bls b 
+                join navieras n 
+                on n.id = b.naviera_id 
+                join containers c 
+                on c.bl_id = b.id 
+                join dict_containers dc 
+                on dc.size = c.size and dc.type = c.type
                 where b.code like :code;
             """
     code = f"{code}%"
