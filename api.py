@@ -173,7 +173,7 @@ async def ver_bls_id(code:str):
                 on c.bl_id = b.id 
                 join dict_containers dc 
                 on dc.size = c.size and dc.type = c.type
-                where b.code like :code;
+                where b.bl_code like :code;
             """
     code = f"{code}%"
     result = await database.fetch_all(query=query, values={"code": code})
