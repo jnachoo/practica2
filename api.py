@@ -5,8 +5,9 @@ from datetime import datetime
 import asyncio 
 
 # Configuración de la base de datos
-DATABASE_URL = "postgresql://jpailamilla:practica.01%23@192.168.74.99:5432/ants_bl"
+#DATABASE_URL = "postgresql://jpailamilla:practica.01%23@192.168.74.99:5432/ants_bl"
 #DATABASE_URL = "postgresql://postgres:clave123@localhost:5433/postgres"
+DATABASE_URL = "postgresql://postgres:clave123@host.docker.internal:5433/postgres"
 database = Database(DATABASE_URL)
 
 app = FastAPI()
@@ -39,25 +40,17 @@ async def shutdown():
 # 1. Leer todos los registros / FUNCIONA
 @app.get("/bls")
 async def ver_bls():
-    query = """select coalesce(b.bl_code, 'no se encuentra') as Codigo_bl,
-                coalesce (n.nombre, 'no se encuentra') as Naviera , coalesce (c.code, 'no se encuetra') as codigo_container,
-                coalesce (dc.nombre_type ||' '|| dc.dryreef, 'no se encuentra') as tipo,
-                coalesce (dc.nombre_size, 'no se encuentra') as size,
-                case
-                    when b.etapa = 1 then 'exportacion'
-                    when b.etapa = 2 then 'importacion'
-                    else 'otro'
-                end as etapa,
-                coalesce(c.pol, 'no se encuentra') as pol, coalesce(c.pod, 'no se encuentra') as pod,
-                coalesce(b.mercado, 'no se encuentra') as mercado,
-                coalesce(b.fecha_bl::text , 'no se encuentra') as Fecha_bl
-                from bls b 
-                join navieras n 
-                on n.id = b.naviera_id 
-                join containers c 
-                on c.bl_id = b.id 
-                join dict_containers dc 
-                on dc.size = c.size and dc.type = c.type """
+    query = """
+                select b.id,b.code,e.nombre,n.nombre,c.size,c.type,c.contenido,t.orden,t.terminal ,t.status ,p.locode,p.lugar ,t.fecha from bls b 
+                join etapa e on e.id =b.id_etapa
+                join tracking t on t.id_bl = b.id 
+                join paradas p on p.id = t.id_parada 
+                join container_viaje cv on cv.id_bl = b.id 
+                join containers c on c.id =cv.id_container 
+                join navieras n on n.id =b.id_naviera 
+                where b.id <10
+                order by t.orden;
+            """
     result = await database.fetch_all(query=query)
     
     # Si no se encuentra la naviera, devolver el listado completo con un mensaje
@@ -70,51 +63,39 @@ async def ver_bls():
 async def bls_fecha(fecha: str):
 
     query = """
-                select coalesce(b.bl_code, 'no se encuentra') as Codigo_bl,
-                coalesce (n.nombre, 'no se encuentra') as Naviera , coalesce (c.code, 'no se encuetra') as codigo_container,
-                coalesce (dc.nombre_type ||' '|| dc.dryreef, 'no se encuentra') as tipo,
-                coalesce (dc.nombre_size, 'no se encuentra') as size,
-                case
-                    when b.etapa = 1 then 'exportacion'
-                    when b.etapa = 2 then 'importacion'
-                    else 'otro'
-                end as etapa,
-                coalesce(c.pol, 'no se encuentra') as pol,coalesce(c.pod, 'no se encuentra') as pod,
-                coalesce(b.mercado, 'no se encuentra') as mercado,
-                coalesce(b.fecha_bl::text , 'no se encuentra') as Fecha_bl
-                from bls b 
-                join navieras n 
-                on n.id = b.naviera_id 
-                join containers c 
-                on c.bl_id = b.id 
-                join dict_containers dc 
-                on dc.size = c.size and dc.type = c.type 
+                select b.id,b.code,e.nombre,n.nombre,c.size,c.type,c.contenido,t.orden,t.terminal ,t.status ,p.locode,p.lugar ,t.fecha from bls b 
+                join etapa e on e.id =b.id_etapa
+                join tracking t on t.id_bl = b.id 
+                join paradas p on p.id = t.id_parada 
+                join container_viaje cv on cv.id_bl = b.id 
+                join containers c on c.id =cv.id_container 
+                join navieras n on n.id =b.id_naviera 
                 where 1=1
             """
     values = {}
     
     if fecha and len(fecha)==4:
         fecha = int(fecha)
-        query += " AND EXTRACT(YEAR FROM b.fecha_bl) = :fecha"
+        query += " AND EXTRACT(YEAR FROM b.fecha) = :fecha"
         values["fecha"] = fecha
         mensaje = f"Los bls encontrados en el año {fecha} son:"
     elif fecha and len(fecha)==10:
         fecha = datetime.strptime(fecha, "%Y-%m-%d").date()
-        query += " AND b.fecha_bl >= :fecha"
+        query += " AND b.fecha >= :fecha"
         values["fecha"] = fecha
         mensaje = f"Los bls encontrados desde {fecha} hasta el día de hoy son:"
     elif fecha and len(fecha)==21:
         nueva_fecha = fecha.split('+')
         fecha_i = datetime.strptime(nueva_fecha[0],"%Y-%m-%d").date()
         fecha_f = datetime.strptime(nueva_fecha[1],"%Y-%m-%d").date()
-        query += " AND b.fecha_bl >= :fecha_i AND b.fecha_bl <= :fecha_f"
+        query += " AND b.fecha >= :fecha_i AND b.fecha <= :fecha_f"
         values["fecha_i"] = fecha_i
         values["fecha_f"] = fecha_f
         mensaje = f"Los bls encontrados desde {fecha_i} hasta {fecha_f} son:"
     else:
         return {"mensaje":"debes usar el formato: para año AAAA, desde: AAAA-MM-DD, desde-hasta: AAAA-MM-DD+AAAA-MM-DD"}
         
-    query += " ORDER BY b.fecha_bl;"
+    query += " order by b.code ,t.orden ;"
     results = await database.fetch_all(query=query, values=values)
     if not results:
         ver_info()
@@ -126,26 +107,16 @@ async def bls_fecha(fecha: str):
 
 @app.get("/bls/id/{id}")
 async def ver_bls_id(id:int):
-    query = """select coalesce(b.bl_code, 'no se encuentra') as Codigo_bl,
-                coalesce (n.nombre, 'no se encuentra') as Naviera , coalesce (c.code, 'no se encuetra') as codigo_container,
-                coalesce (dc.nombre_type ||' '|| dc.dryreef, 'no se encuentra') as tipo,
-                coalesce (dc.nombre_size, 'no se encuentra') as size,
-                case
-                    when b.etapa = 1 then 'exportacion'
-                    when b.etapa = 2 then 'importacion'
-                    else 'otro'
-                end as etapa,
-                coalesce(c.pol, 'no se encuentra') as pol, coalesce(c.pod, 'no se encuentra') as pod,
-                coalesce(b.mercado, 'no se encuentra') as mercado,
-                coalesce(b.fecha_bl::text , 'no se encuentra') as Fecha_bl
-                from bls b 
-                join navieras n 
-                on n.id = b.naviera_id 
-                join containers c 
-                on c.bl_id = b.id 
-                join dict_containers dc 
-                on dc.size = c.size and dc.type = c.type
-                where b.id = :id;"""
+    query = """  
+            select b.id,b.code,e.nombre,n.nombre,c.size,c.type,c.contenido,t.orden,t.terminal ,t.status ,p.locode,p.lugar ,t.fecha from bls b 
+            join etapa e on e.id =b.id_etapa
+            join tracking t on t.id_bl = b.id 
+            join paradas p on p.id = t.id_parada 
+            join container_viaje cv on cv.id_bl = b.id 
+            join containers c on c.id =cv.id_container 
+            join navieras n on n.id =b.id_naviera 
+            where b.id = :id;    
+            """
     result = await database.fetch_all(query=query, values={"id": id})
     
     # Si no se encuentra la naviera, devolver el listado completo con un mensaje
@@ -156,26 +127,17 @@ async def ver_bls_id(id:int):
 
 @app.get("/bls/code/{code}")
 async def ver_bls_id(code:str):
-    query = """select coalesce(b.bl_code, 'no se encuentra') as Codigo_bl,
-                coalesce (n.nombre, 'no se encuentra') as Naviera , coalesce (c.code, 'no se encuetra') as codigo_container,
-                coalesce (dc.nombre_type ||' '|| dc.dryreef, 'no se encuentra') as tipo,
-                coalesce (dc.nombre_size, 'no se encuentra') as size,
-                case
-                    when b.etapa = 1 then 'exportacion'
-                    when b.etapa = 2 then 'importacion'
-                    else 'otro'
-                end as etapa,
-                coalesce(c.pol, 'no se encuentra') as pol,coalesce(c.pod, 'no se encuentra') as pod,
-                coalesce(b.mercado, 'no se encuentra') as mercado,
-                coalesce(b.fecha_bl::text , 'no se encuentra') as Fecha_bl
-                from bls b 
-                join navieras n 
-                on n.id = b.naviera_id 
-                join containers c 
-                on c.bl_id = b.id 
-                join dict_containers dc 
-                on dc.size = c.size and dc.type = c.type
-                where b.bl_code = :code;"""
+    query = """
+                select b.id,b.code,e.nombre,n.nombre,c.size,c.type,c.contenido,t.orden,t.terminal ,t.status ,p.locode,p.lugar ,t.fecha from bls b 
+                join etapa e on e.id =b.id_etapa
+                join tracking t on t.id_bl = b.id 
+                join paradas p on p.id = t.id_parada 
+                join container_viaje cv on cv.id_bl = b.id 
+                join containers c on c.id =cv.id_container 
+                join navieras n on n.id =b.id_naviera 
+                where b.code like :code;
+            """
+    code = f"{code}%"
     result = await database.fetch_all(query=query, values={"code": code})
     
     # Si no se encuentra la naviera, devolver el listado completo con un mensaje
@@ -278,9 +240,9 @@ async def navieras_impo_expo(impo_expo: str, naviera_id: int):
     #naviera_nombre = navieras[id]
 
     # Consulta SQL
-    query = """ SELECT 'La naviera ' || n.nombre || ' tiene ' || COUNT(b.etapa) || ' exportaciones' AS mensaje
-        FROM bls b join navieras n ON b.naviera_id = n.id WHERE b.etapa = :etapa and b.naviera_id = :naviera_id GROUP BY n.nombre;""" if impo_expo.lower() =="expo" else """
-        SELECT 'La naviera ' || n.nombre || ' tiene ' || COUNT(b.etapa) || ' importaciones' AS mensaje
+    query = """ SELECT 'La naviera ' || n.nombre || ' tiene ' || COUNT(b.id_etapa) || ' exportaciones' AS mensaje
+        FROM bls b join navieras n ON b.id_naviera = n.id WHERE b.id_etapa = :etapa and b.id_naviera = :naviera_id GROUP BY n.nombre;""" if impo_expo.lower() =="expo" else """
+        SELECT 'La naviera ' || n.nombre || ' tiene ' || COUNT(b.id_etapa) || ' importaciones' AS mensaje
         FROM bls b join navieras n ON b.naviera_id = n.id WHERE b.etapa = :etapa and b.naviera_id = :naviera_id GROUP BY n.nombre""" 
 
     # Ejecución de la consulta
@@ -300,11 +262,11 @@ async def naviera(naviera_id: int):
     # Consulta SQL para contar exportaciones e importaciones
     query = """
         SELECT 'La naviera ' || n.nombre || ' tiene ' || 
-               SUM(CASE WHEN b.etapa = 1 THEN 1 ELSE 0 END) || ' exportaciones y ' || 
-               SUM(CASE WHEN b.etapa = 2 THEN 1 ELSE 0 END) || ' importaciones' AS mensaje
+               SUM(CASE WHEN b.id_etapa = 1 THEN 1 ELSE 0 END) || ' exportaciones y ' || 
+               SUM(CASE WHEN b.id_etapa = 2 THEN 1 ELSE 0 END) || ' importaciones' AS mensaje
         FROM bls b
-        JOIN navieras n ON b.naviera_id = n.id
-        WHERE b.naviera_id = :naviera_id
+        JOIN navieras n ON b.id_naviera = n.id
+        WHERE b.id_naviera = :naviera_id
         GROUP BY n.nombre;
     """
 
@@ -326,7 +288,8 @@ def ver_info():
         "1.2":"/bls/id/escribir_id",
         "1.3":"/bls/code/escribir_code",
         "2.":"Estas son las rutas relacionadas a requests",
-        "2.0":"/requests"
+        "2.0":"/requests",
+        "3.":"/naviera/escrbir_id_naviera"
     }
     return mensaje
 
