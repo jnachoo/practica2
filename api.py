@@ -4,10 +4,13 @@ from databases import Database
 from datetime import datetime
 import asyncio 
 
-# Configuración de la base de datos
-#DATABASE_URL = "postgresql://jpailamilla:practica.01%23@192.168.74.99:5432/ants_bl"
-#DATABASE_URL = "postgresql://postgres:clave123@localhost:5433/postgres"
-DATABASE_URL = "postgresql://postgres:clave123@host.docker.internal:5433/postgres"
+import os
+from databases import Database
+
+# Obtén la URL de la base de datos desde las variables de entorno
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+# Conecta la base de datos
 database = Database(DATABASE_URL)
 
 app = FastAPI()
@@ -41,15 +44,26 @@ async def shutdown():
 @app.get("/bls")
 async def ver_bls():
     query = """
-                select b.id,b.code,e.nombre,n.nombre,c.size,c.type,c.contenido,t.orden,t.terminal ,t.status ,p.locode,p.lugar ,t.fecha from bls b 
-                join etapa e on e.id =b.id_etapa
-                join tracking t on t.id_bl = b.id 
-                join paradas p on p.id = t.id_parada 
-                join container_viaje cv on cv.id_bl = b.id 
-                join containers c on c.id =cv.id_container 
-                join navieras n on n.id =b.id_naviera 
-                where b.id <10
-                order by t.orden;
+                select coalesce(b.bl_code, 'no se encuentra') as Codigo_bl,
+                coalesce (n.nombre, 'no se encuentra') as Naviera , coalesce (c.code, 'no se encuetra') as codigo_container,
+                coalesce (dc.nombre_type ||' '|| dc.dryreef, 'no se encuentra') as tipo,
+                coalesce (dc.nombre_size, 'no se encuentra') as size,
+                case
+                    when b.etapa = 1 then 'exportacion'
+                    when b.etapa = 2 then 'importacion'
+                    else 'otro'
+                end as etapa,
+                coalesce(c.pol, 'no se encuentra') as pol, coalesce(c.pod, 'no se encuentra') as pod,
+                coalesce(b.mercado, 'no se encuentra') as mercado,
+                coalesce(b.fecha_bl::text , 'no se encuentra') as Fecha_bl
+                from bls b 
+                join navieras n 
+                on n.id = b.naviera_id 
+                join containers c 
+                on c.bl_id = b.id 
+                join dict_containers dc 
+                on dc.size = c.size and dc.type = c.type 
+                where b.id <29235;
             """
     result = await database.fetch_all(query=query)
     

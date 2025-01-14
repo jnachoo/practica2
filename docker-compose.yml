@@ -10,21 +10,5 @@ services:
       - .:/app
     command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
     environment:
-      - DATABASE_URL=postgresql://postgres:clave123@db:5432/postgres
-    depends_on:
-      - db
+      - DATABASE_URL=postgresql://jpailamilla:practica.01%23@192.168.74.99:5432/ants_bl
 
-  db:
-    image: postgres:15
-    restart: always
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "5433:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-volumes:
-  postgres_data:
