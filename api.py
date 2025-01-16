@@ -1,11 +1,11 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import os
 from databases import Database
 from datetime import datetime
 import asyncio 
 
-import os
-from databases import Database
 
 # Obtén la URL de la base de datos desde las variables de entorno
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -14,6 +14,19 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 database = Database(DATABASE_URL)
 
 app = FastAPI()
+
+#origins = [
+#    "http://localhost:3000",  #  URL del front-end
+#    "http://192.168.x.x:3000",  # IP de la maquina del front
+#]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 def leer_raiz():
@@ -44,40 +57,36 @@ async def shutdown():
 @app.get("/bls")
 async def ver_bls():
     query = """
-                select coalesce(b.bl_code, 'no se encuentra') as Codigo_bl,
-                coalesce (n.nombre, 'no se encuentra') as Naviera , coalesce (c.code, 'no se encuetra') as codigo_container,
-                coalesce (dc.nombre_type ||' '|| dc.dryreef, 'no se encuentra') as tipo,
-                coalesce (dc.nombre_size, 'no se encuentra') as size,
-                case
-                    when b.etapa = 1 then 'exportacion'
-                    when b.etapa = 2 then 'importacion'
-                    else 'otro'
-                end as etapa,
-                coalesce(c.pol, 'no se encuentra') as pol, coalesce(c.pod, 'no se encuentra') as pod,
-                coalesce(b.mercado, 'no se encuentra') as mercado,
-                coalesce(b.fecha_bl::text , 'no se encuentra') as Fecha_bl
+                select distinct b.id,b.code ,e.nombre as Etapa,n.nombre as Naviera,c.size,c.type,c.contenido,t.orden,t.terminal,t.status 
+                ,p.locode,p.lugar,TO_CHAR(t.fecha, 'YYYY-MM-DD') as fecha
                 from bls b 
-                join navieras n 
-                on n.id = b.naviera_id 
-                join containers c 
-                on c.bl_id = b.id 
-                join dict_containers dc 
-                on dc.size = c.size and dc.type = c.type 
-                where b.id <29235;
-            """
-    result = await database.fetch_all(query=query)
-    
-    # Si no se encuentra la naviera, devolver el listado completo con un mensaje
+                join etapa e on e.id =b.id_etapa
+                join tracking t on t.id_bl = b.id 
+                join paradas p on p.id = t.id_parada 
+                join container_viaje cv on cv.id_bl = b.id 
+                join containers c on c.id =cv.id_container 
+                join navieras n on n.id =b.id_naviera 
+                where b.id <20;
+                """
+    try:
+        result = await database.fetch_all(query=query)
+        return result
+    except Exception as e:
+        return {"error": f"Error ejecutando la consulta: {str(e)}"}
+
     if not result:
-        ver_info()
-        raise HTTPException(status_code=404, detail="En estos momentos no se puede realizar esta operación")
+        return {"detail": "No se encontraron resultados en la tabla 'bls'."}
+
     return result
+
 
 @app.get("/bls/fecha/{fecha}")
 async def bls_fecha(fecha: str):
 
     query = """
-                select b.id,b.code,e.nombre,n.nombre,c.size,c.type,c.contenido,t.orden,t.terminal ,t.status ,p.locode,p.lugar ,t.fecha from bls b 
+                select distinct b.id,b.code ,e.nombre as Etapa,n.nombre as Naviera,c.size,c.type,c.contenido,t.orden,t.terminal,t.status 
+                ,p.locode,p.lugar,TO_CHAR(t.fecha, 'YYYY-MM-DD') as fecha
+                from bls b 
                 join etapa e on e.id =b.id_etapa
                 join tracking t on t.id_bl = b.id 
                 join paradas p on p.id = t.id_parada 
@@ -122,26 +131,17 @@ async def bls_fecha(fecha: str):
 @app.get("/bls/id/{id}")
 async def ver_bls_id(id:int):
     query = """   
-            select coalesce(b.bl_code, 'no se encuentra') as Codigo_bl,
-                coalesce (n.nombre, 'no se encuentra') as Naviera , coalesce (c.code, 'no se encuetra') as codigo_container,
-                coalesce (dc.nombre_type ||' '|| dc.dryreef, 'no se encuentra') as tipo,
-                coalesce (dc.nombre_size, 'no se encuentra') as size,
-                case
-                    when b.etapa = 1 then 'exportacion'
-                    when b.etapa = 2 then 'importacion'
-                    else 'otro'
-                end as etapa,
-                coalesce(c.pol, 'no se encuentra') as pol, coalesce(c.pod, 'no se encuentra') as pod,
-                coalesce(b.mercado, 'no se encuentra') as mercado,
-                coalesce(b.fecha_bl::text , 'no se encuentra') as Fecha_bl
+                select distinct b.id,b.code ,e.nombre as Etapa,n.nombre as Naviera,c.size,c.type,c.contenido,t.orden,t.terminal,t.status 
+                ,p.locode,p.lugar,TO_CHAR(t.fecha, 'YYYY-MM-DD') as fecha
                 from bls b 
-                join navieras n 
-                on n.id = b.naviera_id 
-                join containers c 
-                on c.bl_id = b.id 
-                join dict_containers dc 
-                on dc.size = c.size and dc.type = c.type
-                where b.id = :id;
+                join etapa e on e.id =b.id_etapa
+                join tracking t on t.id_bl = b.id 
+                join paradas p on p.id = t.id_parada 
+                join container_viaje cv on cv.id_bl = b.id 
+                join containers c on c.id =cv.id_container 
+                join navieras n on n.id =b.id_naviera 
+                where b.id = :id
+                order by t.orden;
             """
     result = await database.fetch_all(query=query, values={"id": id})
     
@@ -154,26 +154,16 @@ async def ver_bls_id(id:int):
 @app.get("/bls/code/{code}")
 async def ver_bls_id(code:str):
     query = """
-                select coalesce(b.bl_code, 'no se encuentra') as Codigo_bl,
-                coalesce (n.nombre, 'no se encuentra') as Naviera , coalesce (c.code, 'no se encuetra') as codigo_container,
-                coalesce (dc.nombre_type ||' '|| dc.dryreef, 'no se encuentra') as tipo,
-                coalesce (dc.nombre_size, 'no se encuentra') as size,
-                case
-                    when b.etapa = 1 then 'exportacion'
-                    when b.etapa = 2 then 'importacion'
-                    else 'otro'
-                end as etapa,
-                coalesce(c.pol, 'no se encuentra') as pol, coalesce(c.pod, 'no se encuentra') as pod,
-                coalesce(b.mercado, 'no se encuentra') as mercado,
-                coalesce(b.fecha_bl::text , 'no se encuentra') as Fecha_bl
+                select distinct b.id,b.code ,e.nombre as Etapa,n.nombre as Naviera,c.size,c.type,c.contenido,t.orden,t.terminal,t.status 
+                ,p.locode,p.lugar,TO_CHAR(t.fecha, 'YYYY-MM-DD') as fecha
                 from bls b 
-                join navieras n 
-                on n.id = b.naviera_id 
-                join containers c 
-                on c.bl_id = b.id 
-                join dict_containers dc 
-                on dc.size = c.size and dc.type = c.type
-                where b.bl_code like :code;
+                join etapa e on e.id =b.id_etapa
+                join tracking t on t.id_bl = b.id 
+                join paradas p on p.id = t.id_parada 
+                join container_viaje cv on cv.id_bl = b.id 
+                join containers c on c.id =cv.id_container 
+                join navieras n on n.id =b.id_naviera 
+                where b.code like :code;
             """
     code = f"{code}%"
     result = await database.fetch_all(query=query, values={"code": code})
@@ -187,16 +177,14 @@ async def ver_bls_id(code:str):
 @app.get("/requests")
 async def requests():
     query = """
-            select b.id, b.bl_code ,bsd.state_description as caso_bl,b.fecha_bl, 
-            rcd.case_description as caso_request , date(r.timestamp) as fecha_request
-            from bls b
-            join bl_state_dictionary bsd 
-            on bsd.state_code = b.state_code
-            join requests r 
-            on r.bl_id = b.id 
-            join request_case_dictionary rcd 
-            on rcd.case_code = r.response_code
-            order by b.fecha_bl desc;
+            select r.id as id_request,h.id as id_html, b.code as bl_code,s.descripcion_status , r.mensaje,rr.descripcion as respuesta_request,
+            b.fecha as fecha_bl, r.fecha as fecha_request   
+            from requests r
+            join html_descargados_temp h on r.id_html = h.id
+            join respuesta_requests rr on rr.id = r.id_respuesta 
+            join bls b on b.id = r.id_bl
+            join status_bl s on s.id = b.id_status 
+            where r.id <20
             """
     result = await database.fetch_all(query=query)
     if not result:
@@ -208,15 +196,13 @@ async def requests():
 @app.get("/requests/{bl_id}")
 async def requests_bl_id(bl_id: int):
     query = """
-            select b.id, b.bl_code ,bsd.state_description as caso_bl,b.fecha_bl, 
-            rcd.case_description as caso_request , date(r.timestamp) as fecha_request
-            from bls b
-            join bl_state_dictionary bsd 
-            on bsd.state_code = b.state_code
-            join requests r 
-            on r.bl_id = b.id 
-            join request_case_dictionary rcd 
-            on rcd.case_code = r.response_code
+            select r.id as id_request,h.id as id_html, b.code as bl_code,s.descripcion_status , r.mensaje,rr.descripcion as respuesta_request,
+            b.fecha as fecha_bl, r.fecha as fecha_request   
+            from requests r
+            join html_descargados_temp h on r.id_html = h.id
+            join respuesta_requests rr on rr.id = r.id_respuesta 
+            join bls b on b.id = r.id_bl
+            join status_bl s on s.id = b.id_status 
             where b.id = :id;
             """
     result = await database.fetch_all(query=query, values={"id": bl_id})
