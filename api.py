@@ -286,3 +286,164 @@ def ver_info():
     }
     return mensaje
 
+##Nathy
+@app.get("/validacion_locode_nulo")
+async def val():
+    query = """
+                SELECT * FROM verificar_locode_nulo();
+                """
+    try:
+        result = await database.fetch_all(query=query)
+        if not result:
+            return {"message": "No existen datos que no cumplan con la validación de locode nulo."}
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de locode nulo: {str(e)}"}
+
+
+@app.get("/validacion_cruce_contenedores")
+async def val():
+    query = """
+                SELECT * FROM consultar_cruce_contenedores('2022-01-06', '2025-01-06');
+                """
+    try:
+        result = await database.fetch_all(query=query)
+        if not result:
+            return {"message": "No existen datos que no cumplan con la validación de cruce con diccionario de contenedores."}
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación del cruce con diccionario de contenedores: {str(e)}"}
+    
+@app.get("/validacion_bls_repetidos")
+async def val():
+    query = """
+                 SELECT * FROM consultar_bls_repetidos();
+                """
+    try:
+        result = await database.fetch_all(query=query)
+        if not result:
+            return {"message": "No existen datos que no cumplan con la validación de bls repetidos."}
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de bls repetidos: {str(e)}"}
+    
+@app.get("/validacion_paradas_pol_pod")
+async def val():
+    query = """
+                SELECT * FROM obtener_paradas_pol_pod();
+                """
+    try:
+        result = await database.fetch_all(query=query)
+        if not result:
+            return {"message": "No existen datos que no cumplan con la validación de paradas que sean pol y pod."}
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la consulta: {str(e)}"}
+    
+@app.get("/validacion_orden_repetida")
+async def val():
+    query = """
+                 SELECT * FROM obtener_paradas_con_orden_repetida();
+                """
+    try:
+        result = await database.fetch_all(query=query)
+        if not result:
+            return {"message": "No existen datos que no cumplan con la validación de orden repetida en la tabla de paradas."}
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de orden repetida en tabla de paradas: {str(e)}"}
+   
+@app.get("/validacion_impo_distinta_CL")
+async def val():
+    query = """
+                 SELECT * FROM verificar_registros_etapa2_pais_distinto_cl();
+                """
+    try:
+        result = await database.fetch_all(query=query)
+        if not result:
+            return {"message": "No existen datos que no cumplan con la validación de parada POD distinta a Chile en importación."}
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de parada POD distinta a Chile en importación: {str(e)}"}
+    
+    
+@app.get("/validacion_bls_impo")
+async def val():
+    query = """
+                 SELECT * FROM validar_bls_impo(2);
+                """
+    try:
+        result = await database.fetch_all(query=query)
+        if not result:
+            return {"message": "No existen datos que no cumplan con la validación de país de destino dentro de ('CL', 'AR', 'BO', 'PY', 'UY')"}
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de país de destino dentro de ('CL', 'AR', 'BO', 'PY', 'UY'): {str(e)}"}
+
+@app.get("/validacion_expo_distinta_CL")
+async def val():
+    query = """
+                 SELECT * FROM verificar_registros_etapa1_pais_distinto_cl();
+                """
+    try:
+        result = await database.fetch_all(query=query)
+        if not result:
+            return {"message": "No existen datos que no cumplan con la validación de parada POL distinta a Chile en exportación"}
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de parada POL distinta a Chile en exportación: {str(e)}"} 
+
+@app.get("/validacion_bls_expo")
+async def val():
+    query = """
+                 SELECT * FROM validar_bls_expo(1);
+                """
+    try:
+        result = await database.fetch_all(query=query)
+        if not result:
+            return {"message": "No existen datos que no cumplan con la validación de país de origen dentro de ('CL', 'AR', 'BO')"}
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de país de origen dentro de ('CL', 'AR', 'BO'): {str(e)}"}
+    
+@app.get("/validacion_paradas_expo")
+async def val():
+    query = """
+                SELECT * FROM obtener_paradas_con_validacion();
+                """
+    try:
+        result = await database.fetch_all(query=query)
+        if not result:
+            return {"message": "No existen datos que no cumplan con la validación de país de destino y POD distinto de Chile"}
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de país de destino y POD distinto de Chile: {str(e)}"}
+
+
+@app.get("/validacion_dias_impo")
+async def val():
+    query = """
+                SELECT * FROM obtener_diferencia_requests_importacion();
+                """
+    try:
+        result = await database.fetch_all(query=query)
+        if not result:
+            return {"message": "No existen datos que no cumplan con la validación de request en importaciones"}
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de request en importaciones: {str(e)}"}
+    
+@app.get("/validacion_requests_expo")
+async def val():
+    query = """
+                SELECT * FROM obtener_requests_expo();
+                """
+    try:
+        result = await database.fetch_all(query=query)
+        if not result:
+            return {"message": "No existen datos que no cumplan con la validación de request en exportaciones"}
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de request en exportaciones: {str(e)}"}
+
+    
