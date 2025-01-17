@@ -5,6 +5,7 @@ import os
 from databases import Database
 from datetime import datetime
 import asyncio 
+import api_get as g
 
 
 # Obtén la URL de la base de datos desde las variables de entorno
@@ -53,32 +54,24 @@ async def shutdown():
 
 # Endpoints API 
 
-# 1. Leer todos los registros / FUNCIONA
 @app.get("/bls")
 async def ver_bls():
     query = """
-                select distinct b.id,b.code ,e.nombre as Etapa,n.nombre as Naviera,c.size,c.type,c.contenido,t.orden,t.terminal,t.status 
-                ,p.locode,p.lugar,TO_CHAR(t.fecha, 'YYYY-MM-DD') as fecha
-                from bls b 
+                select b.id,b.code as bl_code, e.nombre  as etapa, n.nombre  as naviera ,sb.descripcion_status as status, 
+                TO_CHAR(b.fecha, 'YYYY-MM-DD') as fecha ,TO_CHAR(b.proxima_revision, 'YYYY-MM-DD') as fecha_proxima_revision   
+                from bls b --875.294
                 join etapa e on e.id =b.id_etapa
-                join tracking t on t.id_bl = b.id 
-                join paradas p on p.id = t.id_parada 
-                join container_viaje cv on cv.id_bl = b.id 
-                join containers c on c.id =cv.id_container 
-                join navieras n on n.id =b.id_naviera 
-                where b.id <20;
+                join navieras n on n.id =b.id_naviera
+                join status_bl sb on b.id_status = sb.id
+                where b.id <2000;
                 """
     try:
         result = await database.fetch_all(query=query)
         return result
     except Exception as e:
         return {"error": f"Error ejecutando la consulta: {str(e)}"}
-
-    if not result:
-        return {"detail": "No se encontraron resultados en la tabla 'bls'."}
-
-    return result
-
+#def get_bls():
+#    return g.ver_bls()
 
 @app.get("/bls/fecha/{fecha}")
 async def bls_fecha(fecha: str):
@@ -153,16 +146,13 @@ async def ver_bls_id(id:int):
 
 @app.get("/bls/code/{code}")
 async def ver_bls_id(code:str):
-    query = """
-                select distinct b.id,b.code ,e.nombre as Etapa,n.nombre as Naviera,c.size,c.type,c.contenido,t.orden,t.terminal,t.status 
-                ,p.locode,p.lugar,TO_CHAR(t.fecha, 'YYYY-MM-DD') as fecha
-                from bls b 
+    query = """                
+                select b.id,b.code as bl_code, e.nombre  as etapa, n.nombre  as naviera ,sb.descripcion_status as status, 
+                TO_CHAR(b.fecha, 'YYYY-MM-DD') as fecha ,TO_CHAR(b.proxima_revision, 'YYYY-MM-DD') as fecha_proxima_revision   
+                from bls b --875.294
                 join etapa e on e.id =b.id_etapa
-                join tracking t on t.id_bl = b.id 
-                join paradas p on p.id = t.id_parada 
-                join container_viaje cv on cv.id_bl = b.id 
-                join containers c on c.id =cv.id_container 
-                join navieras n on n.id =b.id_naviera 
+                join navieras n on n.id =b.id_naviera
+                join status_bl sb on b.id_status = sb.id
                 where b.code like :code;
             """
     code = f"{code}%"
@@ -172,6 +162,46 @@ async def ver_bls_id(code:str):
     if not result:
         ver_info()
         raise HTTPException(status_code=404, detail="Code de bl no encontrado")
+    return result
+
+@app.get("/bls/naviera/{code}")
+async def ver_bls_id(code:str):
+    query = """                
+                select b.id,b.code as bl_code, e.nombre  as etapa, n.nombre  as naviera ,sb.descripcion_status as status, 
+                TO_CHAR(b.fecha, 'YYYY-MM-DD') as fecha ,TO_CHAR(b.proxima_revision, 'YYYY-MM-DD') as fecha_proxima_revision   
+                from bls b --875.294
+                join etapa e on e.id =b.id_etapa
+                join navieras n on n.id =b.id_naviera
+                join status_bl sb on b.id_status = sb.id
+                where n.nombre like :code;
+            """
+    code = f"{code}%"
+    result = await database.fetch_all(query=query, values={"code": code})
+    
+    # Si no se encuentra la naviera, devolver el listado completo con un mensaje
+    if not result:
+        ver_info()
+        raise HTTPException(status_code=404, detail="Naviera de bl no encontrado")
+    return result
+
+@app.get("/bls/etapa/{etapa}")
+async def ver_bls_id(etapa:str):
+    query = """                
+                select b.id,b.code as bl_code, e.nombre  as etapa, n.nombre  as naviera ,sb.descripcion_status as status, 
+                TO_CHAR(b.fecha, 'YYYY-MM-DD') as fecha ,TO_CHAR(b.proxima_revision, 'YYYY-MM-DD') as fecha_proxima_revision   
+                from bls b --875.294
+                join etapa e on e.id =b.id_etapa
+                join navieras n on n.id =b.id_naviera
+                join status_bl sb on b.id_status = sb.id
+                where e.nombre like :etapa;
+            """
+    etapa = f"{etapa}%"
+    result = await database.fetch_all(query=query, values={"etapa": etapa})
+    
+    # Si no se encuentra la naviera, devolver el listado completo con un mensaje
+    if not result:
+        ver_info()
+        raise HTTPException(status_code=404, detail="Etapa de bl no encontrado")
     return result
 
 @app.get("/requests")
@@ -277,7 +307,7 @@ async def navieras_impo_expo(impo_expo: str, naviera_id: int):
     return result
 
 
-@app.get("/naviera/{naviera_id}")
+#@app.get("/naviera/{naviera_id}")
 async def naviera(naviera_id: int):
     # Validación del ID de naviera
     if naviera_id > 13 or naviera_id < 1:
