@@ -252,26 +252,67 @@ async def ver_bls_id(
 # ---------------REQUESTS------------------
 #------------------------------------------
 
-@app.get("/requests")
+@app.get("/requests/")
 async def requests(
     limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 50
-    offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
+    offset: int = Query(0, ge=0),  # Índice de inicio, por defecto 0
+    id_request: int = Query(None),
+    id_html: int = Query(None),
+    bl_code: str = Query(None),
+    bl_status: str = Query(None),
+    mensaje: str = Query(None),
+    respuesta_request: str = Query(None),
+    order_by: str = Query(None, regex="^(r\\.id|h\\.id|b\\.code|s\\.descripcion_status|r\\.mensaje|rr\\.descripcion|b\\.fecha)$"),  # Campos válidos para ordenación
+    order: str = Query("ASC", regex="^(ASC|DESC|asc|desc)$")    
 ):
+
     query = """
-            select r.id as id_request,h.id as id_html, b.code as bl_code,s.descripcion_status , r.mensaje,rr.descripcion as respuesta_request,
+            select r.id as id_request,h.id as id_html, b.code as bl_code,
+            s.descripcion_status , r.mensaje,rr.descripcion as respuesta_request,
             b.fecha as fecha_bl, r.fecha as fecha_request   
             from requests r
             join html_descargados_temp h on r.id_html = h.id
             join respuesta_requests rr on rr.id = r.id_respuesta 
             join bls b on b.id = r.id_bl
             join status_bl s on s.id = b.id_status 
-            LIMIT :limit OFFSET :offset;
+            where 1=1
             """
+    # Agregar filtros dinámicos
+    values = {}
+
+    if id_request:
+        query += " AND r.id = :id_request"
+        values["id_request"] = id_request
+    if id_html:
+        query += " AND h.id = :id_html"
+        values["id_html"] = id_html
+    if bl_code:
+        query += " AND b.code ILIKE :bl_code"
+        values["bl_code"] = f"{bl_code}%"
+    if bl_status:
+        query += " AND s.descripcion_status ILIKE :bl_status"
+        values["bl_status"] = f"{bl_status}%"
+    if mensaje:
+        query += " AND r.mensaje ILIKE :mensaje"
+        values["mensaje"] = f"{mensaje}%"
+    if respuesta_request:
+        query += " AND rr.descripcion ILIKE :respuesta_request"
+        values["respuesta_request"] = f"{respuesta_request}%"
+
+    # Ordenación dinámica
+    if order_by:
+        query += f" ORDER BY {order_by} {order}"
+
+    # Agregar límites y desplazamiento
+    query += " LIMIT :limit OFFSET :offset"
+    values["limit"] = limit
+    values["offset"] = offset
+
     try:
-        result = await database.fetch_all(query=query, values={"limit": limit, "offset": offset})
+        result = await database.fetch_all(query=query, values=values)
         if not result:
             ver_info()
-            raise HTTPException(status_code=404, detail="La ruta no existe")
+            raise HTTPException(status_code=404, detail="Datos no encontrados")
         return result
     except Exception as e:
         return {"error": f"Error al ejecutar la consulta request: {str(e)}"}
@@ -337,31 +378,80 @@ async def requests_code(
 #------------PARADAS------------
 #-------------------------------
 
-@app.get("/paradas")
-async def ver_paradas(
-    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 50
+# http://localhost:8000/paradas/?locode=C&pais=chil&order_by=t.orden&bl_code=SCL
+@app.get("/paradas/")
+async def super_filtro_paradas(
+    bl_code: str = Query(None),
+    locode: str = Query(None),
+    pais: str = Query(None),
+    lugar: str = Query(None),
+    is_pol: bool = Query(None),
+    is_pod: bool = Query(None),
+    orden: int = Query(None),
+    status: str = Query(None),
+    order_by: str = Query(None, regex="^(b\\.code|t\\.orden|t\\.status|p\\.locode|p\\.pais)$"),  # Campos válidos para ordenación
+    order: str = Query("ASC", regex="^(ASC|DESC)$"), 
+    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 500
     offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
 ):
+
+    # Consulta a la base de datos ants_api
     query = """
-                select b.code as bl_code,t.orden,t.status,p.locode,p.pais,p.lugar,
-                t.is_pol ,t.is_pod 
-                from tracking t
-                join paradas p on p.id = t.id_parada
-                join bls b on b.id = t.id_bl 
-                where b.id <50
-                order by b.id,t.orden
-                LIMIT :limit OFFSET :offset;
-            """ 
+        SELECT b.code AS bl_code, t.orden, t.status, p.locode, p.pais, p.lugar,
+               t.is_pol, t.is_pod
+        FROM tracking t
+        JOIN paradas p ON p.id = t.id_parada
+        JOIN bls b ON b.id = t.id_bl
+        WHERE 1=1
+    """
+    values = {}
+
+    # Agregar filtros dinámicos
+    if bl_code:
+        query += " AND b.code ILIKE :bl_code"
+        values["bl_code"] = f"{bl_code}%"
+    if locode:
+        query += " AND p.locode ILIKE :locode"
+        values["locode"] = f"{locode}%"
+    if pais:
+        query += " AND p.pais ILIKE :pais"
+        values["pais"] = f"{pais}%"
+    if lugar:
+        query += " AND p.lugar ILIKE :lugar"
+        values["lugar"] = f"{lugar}%"
+    if is_pol is not None:
+        query += " AND t.is_pol = :is_pol"
+        values["is_pol"] = bool(is_pol)
+    if is_pod is not None:
+        query += " AND t.is_pod = :is_pod"
+        values["is_pod"] = bool(is_pod)
+    if orden:
+        query += " AND t.orden = :orden"
+        values["orden"] = orden
+    if status:
+        query += " AND t.status ILIKE :status"
+        values["status"] = f"{status}%"
+
+    # Ordenación dinámica
+    if order_by:
+        query += f" ORDER BY {order_by} {order}"
+
+    # Agregar límites y desplazamiento
+    query += " LIMIT :limit OFFSET :offset"
+    values["limit"] = limit
+    values["offset"] = offset
+
     try:
-        result = await database.fetch_all(query=query, values={"limit": limit, "offset": offset})
+        # Ejecutar la consulta
+        result = await database.fetch_all(query=query, values=values)
         if not result:
-            ver_info()
-            raise HTTPException(status_code=404, detail="Paradas no encontradas")
+            ver_info()  # Función que muestra todas las rutas posibles
+            raise HTTPException(status_code=404, detail="Datos no encontrados")
         return result
     except Exception as e:
-        return {"error": f"Error al ejecutar la consulta paradas: {str(e)}"}
+        return {"error": f"Error al ejecutar la consulta: {str(e)}"}
 
-
+    
 @app.get("/paradas/bl_code/{bl_code}")
 async def ver_paradas(
     bl_code: str,
@@ -731,3 +821,63 @@ async def val():
         return {"error": f"Error al ejecutar la validación de request en exportaciones: {str(e)}"}
     
     #locode = f"'{locode}'"
+
+#-------------------------------------------
+#----------VALIDACIONES TENDENCIA-----------
+#-------------------------------------------
+
+@app.get("/tendencia_navieras/{nombre}")
+async def tendencia_navieras(nombre: str):
+    query = """
+                SELECT 
+                    n.nombre,
+                    SUM(oc.c20 + oc.c40 * 2) AS teus
+                FROM output_containers oc
+                LEFT JOIN bls b ON b.code = oc.codigo 
+                LEFT JOIN navieras n ON n.id = b.id_naviera 
+                WHERE n.nombre ilike :nombre
+                GROUP BY
+                    n.nombre
+                HAVING SUM(oc.c20 + oc.c40 * 2) > 0;
+                """
+    nombre = f"{nombre}%"
+    try:
+        # Ejecutamos la consulta pasando el parámetro 'nombre'
+        result = await database.fetch_all(query=query, values={"nombre": nombre})
+        
+        # Verificamos si no hay resultados
+        if not result:
+            return {"message": "No existen datos que cumplan con la naviera seleccionada"}
+        
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de tendencia: {str(e)}"}
+
+@app.get("/tendencia_etapa/{etapa}")
+async def tendencia_etapa(etapa: str):
+    query = """
+            SELECT 
+                n.nombre,
+                b.id_etapa,
+                SUM(oc.c20 + oc.c40 * 2) AS teus
+            FROM output_containers oc
+            LEFT JOIN bls b ON b.code = oc.codigo
+            LEFT JOIN navieras n ON n.id = b.id_naviera
+            WHERE b.id_etapa ilike :etapa
+            GROUP BY
+                n.nombre,
+                b.id_etapa
+            HAVING SUM(oc.c20 + oc.c40 * 2) > 0;
+                """
+    etapa = f"{etapa}%"
+    try:
+        # Ejecutamos la consulta pasando el parámetro 'nombre'
+        result = await database.fetch_all(query=query, values={"etapa": etapa})
+        
+        # Verificamos si no hay resultados
+        if not result:
+            return {"message": "No existen datos que cumplan con la etapa seleccionada"}
+        
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de tendencia: {str(e)}"}
