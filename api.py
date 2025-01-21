@@ -653,12 +653,31 @@ def ver_info():
         "3.0":"/paradas",
         "3.1":"/paradas/bl_code/escribir_bl_code",
         "3.2":"/paradas/locode/escribir_locode",
-        "3.3":"/paradas/pais/escribir_pais"
+        "3.3":"/paradas/pais/escribir_pais",
+        "4.":"Estas son las rutas relacionadas a validación en línea",
+        "4.1":"/validacion_locode_nulo",
+        "4.2":"/validacion_cruce_contenedores",
+        "4.3":"/validacion_bls_repetidos",
+        "4.4":"/validacion_paradas_pol_pod",
+        "4.5":"/validacion_orden_repetida",
+        "4.6":"/validacion_impo_distinta_CL",
+        "4.7":"/validacion_bls_impo",
+        "4.8":"/validacion_expo_distinta_CL",
+        "4.9":"/validacion_bls_expo",
+        "4.10":"/validacion_paradas_expo",
+        "4.11":"/validacion_dias_impo",
+        "4.12":"/validacion_requests_expo",
+        "5.":"Estas son las validaciones de tendencia",
+        "5.1":"/tendencia_navieras/escribir_nombre_naviera",
+        "5.2":"/tendencia_etapa/escribir_numero_etapa",
+        "5.3":"/tendencia_contenedor_dryreefer/escribir_nombre_contenedor",
+        "5.4":"/tendencia_por_origen/escribir_locode",
+        "5.5":"/tendencia_por_destino/escribir_locode", 
     }
     return mensaje
 
 #---------------------------------
-#----------VALIDACIONES-----------
+#-------VALIDACION EN LINEA-------
 #---------------------------------
 
 @app.get("/validacion_locode_nulo")
@@ -739,7 +758,6 @@ async def val():
         return result
     except Exception as e:
         return {"error": f"Error al ejecutar la validación de parada POD distinta a Chile en importación: {str(e)}"}
-    
     
 @app.get("/validacion_bls_impo")
 async def val():
@@ -835,7 +853,7 @@ async def tendencia_navieras(nombre: str):
                 FROM output_containers oc
                 LEFT JOIN bls b ON b.code = oc.codigo 
                 LEFT JOIN navieras n ON n.id = b.id_naviera 
-                WHERE n.nombre ilike :nombre
+                WHERE n.nombre ILIKE :nombre
                 GROUP BY
                     n.nombre
                 HAVING SUM(oc.c20 + oc.c40 * 2) > 0;
@@ -863,7 +881,7 @@ async def tendencia_etapa(etapa: str):
             FROM output_containers oc
             LEFT JOIN bls b ON b.code = oc.codigo
             LEFT JOIN navieras n ON n.id = b.id_naviera
-            WHERE b.id_etapa ilike :etapa
+            WHERE b.id_etapa = :etapa
             GROUP BY
                 n.nombre,
                 b.id_etapa
@@ -877,6 +895,98 @@ async def tendencia_etapa(etapa: str):
         # Verificamos si no hay resultados
         if not result:
             return {"message": "No existen datos que cumplan con la etapa seleccionada"}
+        
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de tendencia: {str(e)}"}
+
+@app.get("/tendencia_contenedor_dryreefer/{contenido}")
+async def tendencia_contenedor_dryreefer(contenido: str):
+    query = """
+                SELECT 
+                n.nombre,
+                oc."dry/reefer",
+                SUM(oc.c20 + oc.c40 * 2) AS teus
+            FROM output_containers oc
+            JOIN bls b on b.code = oc.codigo
+            LEFT JOIN navieras n ON n.id = b.id_naviera
+            WHERE oc."dry/reefer" ILIKE :contenido
+            GROUP BY
+                n.nombre,
+                oc."dry/reefer"
+            HAVING SUM(oc.c20 + oc.c40 * 2) > 0;;
+                """
+    contenido = f"{contenido}%"
+    try:
+        # Ejecutamos la consulta pasando el parámetro 'nombre'
+        result = await database.fetch_all(query=query, values={"contenido": contenido})
+        
+        # Verificamos si no hay resultados
+        if not result:
+            return {"message": "No existen datos que cumplan con el tipo de contenido seleccionado"}
+        
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de tendencia: {str(e)}"}
+    
+@app.get("/tendencia_por_origen/{origen_locode}")
+async def tendencia_por_origen(origen_locode: str):
+    query = """
+            SELECT DISTINCT
+                n.nombre,
+                SUM(oc.c20 + oc.c40 * 2) AS teus,
+                p.locode AS o
+            FROM output_containers oc
+            LEFT JOIN bls b ON b.code = oc.codigo
+            LEFT JOIN navieras n ON n.id = b.id_naviera 
+            LEFT JOIN tracking t ON t.id = oc.id_origen 
+            LEFT JOIN paradas p  ON p.id = t.id_parada 
+            WHERE p.locode ILIKE :origen_locode
+            GROUP BY
+                n.nombre,
+                p.locode
+            HAVING SUM(oc.c20 + oc.c40 * 2) > 0;
+            """
+    origen_locode = f"{origen_locode}%"
+    try:
+        # Ejecutamos la consulta pasando el parámetro 'nombre'
+        result = await database.fetch_all(query=query, values={"origen_locode": origen_locode})
+        
+        # Verificamos si no hay resultados
+        if not result:
+            return {"message": "No existen datos que cumplan con el origen seleccionado"}
+        
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de tendencia: {str(e)}"}
+    
+        
+@app.get("/tendencia_por_destino/{destino_locode}")
+async def tendencia_por_destino(destino_locode: str):
+    query = """
+            SELECT DISTINCT
+                n.nombre,
+                SUM(oc.c20 + oc.c40 * 2) AS teus,
+                p.locode AS o
+            FROM output_containers oc
+            LEFT JOIN bls b ON b.code = oc.codigo
+            LEFT JOIN navieras n ON n.id = b.id_naviera 
+            LEFT JOIN tracking t ON t.id = oc.id_destino 
+            LEFT JOIN paradas p  ON p.id = t.id_parada 
+            WHERE p.locode ILIKE :destino_locode
+            GROUP BY
+                n.nombre,
+                p.locode
+            HAVING SUM(oc.c20 + oc.c40 * 2) > 0;
+            """
+    destino_locode = f"{destino_locode}%"
+    try:
+        # Ejecutamos la consulta pasando el parámetro 'nombre'
+        result = await database.fetch_all(query=query, values={"destino_locode": destino_locode})
+        
+        # Verificamos si no hay resultados
+        if not result:
+            return {"message": "No existen datos que cumplan con el destino seleccionado"}
         
         return result
     except Exception as e:
