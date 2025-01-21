@@ -57,28 +57,83 @@ async def shutdown():
 # -----------------BLS---------------------
 #------------------------------------------
 
-@app.get("/bls")
-async def ver_bls(
-    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 50
-    offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
+# Ejemplo de url
+# http://localhost:8000/bls/?pol=CL&order_by=b.fecha&order=desc&fecha=2024-07-20&etapa=expo
+@app.get("/bls/")
+async def super_filtro_bls(
+    bl_code: str = Query(None),  # Código del BL
+    etapa: str = Query(None),  # Nombre de la etapa
+    pol: str = Query(None),  # Puerto de origen
+    pod: str = Query(None),  # Puerto de destino
+    naviera: str = Query(None),  # Nombre de la naviera
+    status: str = Query(None),  # Descripción del estado
+    fecha: str = Query(None, regex=r"^\d{4}-\d{2}-\d{2}$"),  # Fecha en formato YYYY-MM-DD
+    fecha_proxima_revision: str = Query(None, regex=r"^\d{4}-\d{2}-\d{2}$"),  # Próxima revisión
+    order_by: str = Query(None,
+        regex=r"^(b\.code|e\.nombre|b\.pol|b\.pod|n\.nombre|sb\.descripcion_status|b\.fecha|b\.proxima_revision)$"), # Campos válidos para ordenación
+    order: str = Query("ASC", regex="^(ASC|DESC|asc|desc)$"),  # Dirección de ordenación
+    limit: int = Query(500, ge=1),  # Número de resultados por página
+    offset: int = Query(0, ge=0),  # Índice de inicio
 ):
+    # Consulta base
     query = """
-                select b.id,b.code as bl_code, e.nombre  as etapa,b.pol,b.pod, n.nombre  as naviera ,sb.descripcion_status as status, 
-                TO_CHAR(b.fecha, 'YYYY-MM-DD') as fecha ,TO_CHAR(b.proxima_revision, 'YYYY-MM-DD') as fecha_proxima_revision   
-                from bls b --875.294
-                join etapa e on e.id =b.id_etapa
-                join navieras n on n.id =b.id_naviera
-                join status_bl sb on b.id_status = sb.id
-                LIMIT :limit OFFSET :offset;
-                """
+        SELECT b.id, b.code AS bl_code, e.nombre AS etapa, b.pol, b.pod, n.nombre AS naviera, 
+               sb.descripcion_status AS status, 
+               TO_CHAR(b.fecha, 'YYYY-MM-DD') AS fecha, 
+               TO_CHAR(b.proxima_revision, 'YYYY-MM-DD') AS fecha_proxima_revision
+        FROM bls b
+        JOIN etapa e ON e.id = b.id_etapa
+        JOIN navieras n ON n.id = b.id_naviera
+        JOIN status_bl sb ON b.id_status = sb.id
+        WHERE 1=1
+    """
+    values = {}
+
+    # Agregar filtros dinámicos
+    if bl_code:
+        query += " AND b.code ILIKE :bl_code"
+        values["bl_code"] = f"{bl_code}%"
+    if etapa:
+        query += " AND e.nombre ILIKE :etapa"
+        values["etapa"] = f"{etapa}%"
+    if pol:
+        query += " AND b.pol ILIKE :pol"
+        values["pol"] = f"{pol}%"
+    if pod:
+        query += " AND b.pod ILIKE :pod"
+        values["pod"] = f"{pod}%"
+    if naviera:
+        query += " AND n.nombre ILIKE :naviera"
+        values["naviera"] = f"{naviera}%"
+    if status:
+        query += " AND sb.descripcion_status ILIKE :status"
+        values["status"] = f"{status}%"
+    if fecha:
+        query += " AND TO_CHAR(b.fecha, 'YYYY-MM-DD') = :fecha"
+        values["fecha"] = fecha
+    if fecha_proxima_revision:
+        query += " AND TO_CHAR(b.proxima_revision, 'YYYY-MM-DD') = :fecha_proxima_revision"
+        values["fecha_proxima_revision"] = fecha_proxima_revision
+
+    # Ordenación dinámica
+    if order_by:
+        query += f" ORDER BY {order_by} {order}"
+
+    # Agregar límites y desplazamiento
+    query += " LIMIT :limit OFFSET :offset"
+    values["limit"] = limit
+    values["offset"] = offset
+
     try:
-        result = await database.fetch_all(query=query, values={"limit": limit, "offset": offset})
+        # Ejecutar la consulta
+        result = await database.fetch_all(query=query, values=values)
         if not result:
-            ver_info()
-            raise HTTPException(status_code=404, detail="Bl no encontrado")
+            ver_info()  # Función que muestra todas las rutas posibles
+            raise HTTPException(status_code=404, detail="BL no encontrado")
         return result
     except Exception as e:
         return {"error": f"Error ejecutando la consulta bls: {str(e)}"}
+
 #def get_bls():
 #    return g.ver_bls()
 
@@ -252,6 +307,8 @@ async def ver_bls_id(
 # ---------------REQUESTS------------------
 #------------------------------------------
 
+# Ejemplo de url 
+# http://localhost:8000/requests/?mensaje=exito&bl_status=Toda&bl_code=hlcuri&order_by=h.id&order=asc
 @app.get("/requests/")
 async def requests(
     limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 50
@@ -378,6 +435,7 @@ async def requests_code(
 #------------PARADAS------------
 #-------------------------------
 
+# Ejemplo de url
 # http://localhost:8000/paradas/?locode=C&pais=chil&order_by=t.orden&bl_code=SCL
 @app.get("/paradas/")
 async def super_filtro_paradas(
@@ -390,7 +448,7 @@ async def super_filtro_paradas(
     orden: int = Query(None),
     status: str = Query(None),
     order_by: str = Query(None, regex="^(b\\.code|t\\.orden|t\\.status|p\\.locode|p\\.pais)$"),  # Campos válidos para ordenación
-    order: str = Query("ASC", regex="^(ASC|DESC)$"), 
+    order: str = Query("ASC", regex="^(ASC|DESC|asc|desc)$"), 
     limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 500
     offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
 ):
@@ -542,25 +600,65 @@ async def ver_paradas_pais(
 # ---------------CONTAINERS-----------------
 #-------------------------------------------
 
-@app.get("/containers")
-async def ver_container(
-    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 50
-    offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
+# Ejemplo de url 
+# http://localhost:8000/containers/?size=40&type=High&bl_code=238&order_by=c.code
+@app.get("/containers/")
+async def super_filtro_containers(
+    codigo_container: str = Query(None),
+    bl_code: str = Query(None),
+    size: int = Query(None), 
+    type: str = Query(None),  
+    contenido: str = Query(None), 
+    order_by: str = Query(None, regex="^(c\\.code|b\\.code|c\\.size|c\\.type|c\\.contenido)$"), 
+    order: str = Query("ASC", regex="^(ASC|DESC|asc|desc)$"),  
+    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 500
+    offset: int = Query(0, ge=0),  # Índice de inicio, por defecto 0
 ):
+    # Consulta base
     query = """
-                select c.code as container_code , b.code as bl_code ,c.size,c.type,c.contenido
-                from containers c 
-                join container_viaje cv on cv.id_container = c.id 
-                join bls b on b.id = cv.id_bl
-                LIMIT :limit OFFSET :offset;
-            """
+        SELECT c.code AS container_code, b.code AS bl_code, c.size, c.type, c.contenido
+        FROM containers c
+        JOIN container_viaje cv ON cv.id_container = c.id
+        JOIN bls b ON b.id = cv.id_bl
+        WHERE 1=1
+    """
+    values = {}
+
+    # Agregar filtros dinámicos
+    if codigo_container:
+        query += " AND c.code ILIKE :codigo_container"
+        values["codigo_container"] = f"{codigo_container}%"
+    if bl_code:
+        query += " AND b.code ILIKE :bl_code"
+        values["bl_code"] = f"{bl_code}%"
+    if size is not None:
+        query += " AND c.size ILIKE :size"
+        values["size"] = f"{size}%"
+    if type:
+        query += " AND c.type ILIKE :type"
+        values["type"] = f"{type}%"
+    if contenido:
+        query += " AND c.contenido ILIKE :contenido"
+        values["contenido"] = f"{contenido}%"
+
+    # Ordenación dinámica
+    if order_by:
+        query += f" ORDER BY {order_by} {order}"
+
+    # Agregar límites y desplazamiento
+    query += " LIMIT :limit OFFSET :offset"
+    values["limit"] = limit
+    values["offset"] = offset
+
     try:
-        result = await database.fetch_all(query=query, values={"limit": limit, "offset": offset})
+        # Ejecutar la consulta
+        result = await database.fetch_all(query=query, values=values)
         if not result:
-            ver_info()
+            ver_info()  # Función que muestra todas las rutas posibles
             raise HTTPException(status_code=404, detail="Containers no encontrados")
         return result
-    except Exception as e: return {"error": f"Error al ejecutar la consulta containers:{str(e)}"}
+    except Exception as e:
+        return {"error": f"Error al ejecutar la consulta containers: {str(e)}"}
 
 @app.get("/containers/code/{code}")
 async def ver_container(
@@ -638,42 +736,50 @@ async def ver_container(
 @app.get("/info")
 def ver_info():
     mensaje = {
-        "1.":"Estas son las rutas relacionadas a bls",
-        "1.0":"/bls",
-        "1.1":"/bls/fecha/escribir_fecha",
-        "1.2":"/bls/id/escribir_id",
-        "1.3":"/bls/code/escribir_code",
-        "1.4":"/bls/etapa/escribir_etapa",
-        "1.5":"/bls/naviera/escribir_naviera",
-        "2.":"Estas son las rutas relacionadas a requests",
-        "2.0":"/requests",
-        "2.1":"/requests/id_bl/escribir_id_bl",
-        "2.2":"/requests/bl_code/escribir_bl_code",
-        "3.":"Estas son las rutas relacionadas a paradas",
-        "3.0":"/paradas",
-        "3.1":"/paradas/bl_code/escribir_bl_code",
-        "3.2":"/paradas/locode/escribir_locode",
-        "3.3":"/paradas/pais/escribir_pais",
-        "4.":"Estas son las rutas relacionadas a validación en línea",
-        "4.1":"/validacion_locode_nulo",
-        "4.2":"/validacion_cruce_contenedores",
-        "4.3":"/validacion_bls_repetidos",
-        "4.4":"/validacion_paradas_pol_pod",
-        "4.5":"/validacion_orden_repetida",
-        "4.6":"/validacion_impo_distinta_CL",
-        "4.7":"/validacion_bls_impo",
-        "4.8":"/validacion_expo_distinta_CL",
-        "4.9":"/validacion_bls_expo",
-        "4.10":"/validacion_paradas_expo",
-        "4.11":"/validacion_dias_impo",
-        "4.12":"/validacion_requests_expo",
-        "5.":"Estas son las validaciones de tendencia",
-        "5.1":"/tendencia_navieras/escribir_nombre_naviera",
-        "5.2":"/tendencia_etapa/escribir_numero_etapa",
-        "5.3":"/tendencia_contenedor_dryreefer/escribir_nombre_contenedor",
-        "5.4":"/tendencia_por_origen/escribir_locode",
-        "5.5":"/tendencia_por_destino/escribir_locode", 
+        "GET": "CONSULTAS API",
+        "1.": "Estas son las rutas relacionadas a bls",
+        "1.0": "/bls",
+        "1.1": "/bls/fecha/escribir_fecha",
+        "1.2": "/bls/id/escribir_id",
+        "1.3": "/bls/code/escribir_code",
+        "1.4": "/bls/etapa/escribir_etapa",
+        "1.5": "/bls/naviera/escribir_naviera",
+        "2.": "Estas son las rutas relacionadas a requests",
+        "2.0": "/requests  Super filtro",
+        "2.1": "/requests/id_bl/escribir_id_bl",
+        "2.2": "/requests/bl_code/escribir_bl_code",
+        "3.": "Estas son las rutas relacionadas a paradas",
+        "3.0": "/paradas  Super filtro",
+        "3.1": "/paradas/bl_code/escribir_bl_code",
+        "3.2": "/paradas/locode/escribir_locode",
+        "3.3": "/paradas/pais/escribir_pais",
+        "4.": "Estas son las rutas relacionadas a container",
+        "4.0": "/containers",
+        "4.1": "/containers/code/escribir_code_container",
+        "4.2": "/containers/bl_code/escribir_code_container",
+        "": "",
+        "GET VALIDACIONES": "VALIDACIONES API",
+        "1.": "Estas son las rutas relacionadas a validación en línea",
+        "1.1": "/validacion_locode_nulo",
+        "1.2": "/validacion_cruce_contenedores",
+        "1.3": "/validacion_bls_repetidos",
+        "1.4": "/validacion_paradas_pol_pod",
+        "1.5": "/validacion_orden_repetida",
+        "1.6": "/validacion_impo_distinta_CL",
+        "1.7": "/validacion_bls_impo",
+        "1.8": "/validacion_expo_distinta_CL",
+        "1.9": "/validacion_bls_expo",
+        "1.10": "/validacion_paradas_expo",
+        "1.11": "/validacion_dias_impo",
+        "1.12": "/validacion_requests_expo",
+        "2.": "Estas son las validaciones de tendencia",
+        "2.1": "/tendencia_navieras/escribir_nombre_naviera",
+        "2.2": "/tendencia_etapa/escribir_numero_etapa",
+        "2.3": "/tendencia_contenedor_dryreefer/escribir_nombre_contenedor",
+        "2.4": "/tendencia_por_origen/escribir_locode",
+        "2.5": "/tendencia_por_destino/escribir_locode",
     }
+
     return mensaje
 
 #---------------------------------
@@ -688,6 +794,7 @@ async def val():
     try:
         result = await database.fetch_all(query=query)
         if not result:
+            ver_info()
             return {"message": "No existen datos que no cumplan con la validación de locode nulo."}
         return result
     except Exception as e:
@@ -702,6 +809,7 @@ async def val():
     try:
         result = await database.fetch_all(query=query)
         if not result:
+            ver_info()
             return {"message": "No existen datos que no cumplan con la validación de cruce con diccionario de contenedores."}
         return result
     except Exception as e:
@@ -865,7 +973,12 @@ async def tendencia_navieras(nombre: str):
         
         # Verificamos si no hay resultados
         if not result:
-            return {"message": "No existen datos que cumplan con la naviera seleccionada"}
+            ver_info()
+            raise HTTPException(status_code=404, detail="Containers no encontrados")
+            return {
+                    "message": "No existen datos que cumplan con la naviera seleccionada",
+                    "info":ver_info()
+                }
         
         return result
     except Exception as e:
