@@ -30,7 +30,7 @@ async def super_filtro_paradas(
 
     # Consulta a la base de datos ants_api
     query = """
-        SELECT b.code AS bl_code, t.orden, t.status, p.locode, p.pais, p.lugar,
+        SELECT t.id as id_tracking,b.code AS bl_code, t.orden, t.status, p.locode, p.pais, p.lugar,
                t.is_pol, t.is_pod
         FROM tracking t
         JOIN paradas p ON p.id = t.id_parada
@@ -167,52 +167,86 @@ async def ver_paradas_pais(
         return {"error": f"Error al ejecutar la consulta paradas_filtro_pais: {str(e)}"}
     
     
-@router.patch("/paradas/{id_parada}")
+@router.patch("/paradas/{id_tracking}")
 async def actualizar_parcial_parada(
-    id_parada: int,
-    orden: str = Body(None),
-    status: int = Body(None),
-    locode: str = Body(None),
-    pais: str = Body(None),
-    lugar: str = Body(None),
-    is_pol: bool = Body(None),
-    is_pod: bool = Body(None),
+    id_tracking: int,
+    orden: int = Query(None),
+    status: str = Query(None),
+    locode: str = Query(None),
+    pais: str = Query(None),
+    lugar: str = Query(None),
+    is_pol: bool = Query(None),
+    is_pod: bool = Query(None),
 ):
-    # Construir la consulta dinámicamente
-    fields = []
-    values = {"id_parada": id_parada}
+    # Construir las consultas dinámicamente
+    fields_tracking = []
+    values_tracking = {"id_tracking": id_tracking}
+    fields_paradas = []
+    values_paradas = {"id_tracking": id_tracking}
+
+    # Campos para la tabla tracking
     if orden is not None:
-        fields.append("orden = :orden")
-        values["orden"] = orden
+        fields_tracking.append("orden = :orden")
+        values_tracking["orden"] = orden
     if status is not None:
-        fields.append("status = :status")
-        values["status"] = status
-    if locode is not None:
-        fields.append("locode = :locode")
-        values["locode"] = locode
-    if pais is not None:
-        fields.append("pais = :pais")
-        values["pais"] = pais
-    if lugar is not None:
-        fields.append("lugar = :lugar")
-        values["lugar"] = lugar
+        fields_tracking.append("status = :status")
+        values_tracking["status"] = status
     if is_pol is not None:
-        fields.append("is_pol = :is_pol")
-        values["is_pol"] = is_pol
+        fields_tracking.append("is_pol = :is_pol")
+        values_tracking["is_pol"] = is_pol  
     if is_pod is not None:
-        fields.append("is_pod = :is_pod")
-        values["is_pod"] = is_pod
+        fields_tracking.append("is_pod = :is_pod")
+        values_tracking["is_pod"] = is_pod  
 
+    # Campos para la tabla paradas
+    if locode is not None:
+        fields_paradas.append("locode = :locode")
+        values_paradas["locode"] = locode
+    if pais is not None:
+        fields_paradas.append("pais = :pais")
+        values_paradas["pais"] = pais
+    if lugar is not None:
+        fields_paradas.append("lugar = :lugar")
+        values_paradas["lugar"] = lugar
 
-    if not fields:
+    # Validar que al menos un campo se proporcionó
+    if not fields_tracking and not fields_paradas:
         raise HTTPException(status_code=400, detail="No se proporcionaron campos para actualizar")
 
-    query = f"UPDATE tracking t SET {', '.join(fields)} WHERE t.id = :id_parada"
+    # Bandera para saber si algo fue actualizado
+    filas_actualizadas = 0
 
-    try:
-        await database.execute(query=query, values=values)
-        return {"message": "Container actualizado parcialmente"}
-    except Exception as e:
-        return {"error": f"Error al actualizar parcialmente el container: {str(e)}"}
+    # Ejecutar la consulta para la tabla tracking si hay campos
+    if fields_tracking:
+        query_tracking = f"""
+            UPDATE tracking
+            SET {', '.join(fields_tracking)}
+            WHERE id = :id_tracking
+            RETURNING id;
+        """
+        # Ejecutar la consulta
+        resultado_t = await database.execute(query=query_tracking, values=values_tracking)
+        if resultado_t : filas_actualizadas += 1
+        print(f"Resultado del update tracking: {resultado_t}")
+    # Ejecutar la consulta para la tabla paradas si hay campos
+    if fields_paradas:
+        query_paradas = f"""
+            UPDATE paradas
+            SET {', '.join(fields_paradas)}
+            WHERE id = (
+                SELECT id_parada
+                FROM tracking
+                WHERE id = :id_tracking
+            )
+            RETURNING id;
+        """
+        # Ejecutar la consulta
+        resultado_p = await database.execute(query=query_paradas, values=values_paradas)
+        if resultado_p: filas_actualizadas += 1
+        print(f"Resultado del update paradas: {resultado_p}")
 
-    #en este codigo es necesario ocupar Body?, por que no solamente usar str, int, boolean, segun corresponda?.
+    # Validar si se actualizaron filas
+    if filas_actualizadas == 0:
+        raise HTTPException(status_code=400, detail="No se pudo actualizar nada")
+
+    return {"message": "Actualización realizada con éxito"}

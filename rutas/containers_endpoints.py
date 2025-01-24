@@ -13,7 +13,7 @@ class Item(BaseModel):
 # Ejemplo de url 
 # http://localhost:8000/containers/?size=40&type=High&bl_code=238&order_by=c.code
 @router.get("/containers/")
-async def super_filtro_containers(
+async def super_filtro_containers( 
     codigo_container: str = Query(None),
     bl_code: str = Query(None),
     size: int = Query(None), 
@@ -26,7 +26,7 @@ async def super_filtro_containers(
 ):
     # Consulta base
     query = """
-        SELECT c.code AS container_code, b.code AS bl_code, c.size, c.type, c.contenido
+        SELECT cv.id as id_container_viaje,c.code AS container_code, b.code AS bl_code, c.size, c.type, c.contenido
         FROM containers c
         JOIN container_viaje cv ON cv.id_container = c.id
         JOIN bls b ON b.id = cv.id_bl
@@ -137,37 +137,81 @@ async def ver_container(
     except Exception as e: return {"error": f"Error al ejecutar la consulta containers:{str(e)}"}
 
 
-@router.patch("/containers/{container_id}")
+@router.patch("/containers/{id_container_viaje}")
 async def actualizar_parcial_container(
-    container_id: int,
-    container_code: str = Body(None),
-    size: str = Body(None),
-    type: str = Body(None),
-    contenido: str = Body(None),
+    id_container_viaje: int,
+    container_code: str = Query(None),
+    bl_code: str = Query(None),
+    size: str = Query(None),
+    type: str = Query(None),
+    contenido: str = Query(None)
 ):
     # Construir la consulta dinámicamente
-    fields = []
-    values = {"container_id": container_id}
-    if container_code is not None:
-        fields.append("code = :container_code")
-        values["container_code"] = container_code
-    if size is not None:
-        fields.append("size = :size")
-        values["size"] = size
-    if type is not None:
-        fields.append("type = :type")
-        values["type"] = type
-    if contenido is not None:
-        fields.append("contenido = :contenido")
-        values["contenido"] = contenido
+    fields_container = []
+    values_container = {"id_container_viaje": id_container_viaje}
+    fields_bls = []
+    values_bls = {"id_container_viaje": id_container_viaje}
 
-    if not fields:
+    if bl_code is not None:
+        fields_bls.append("code = :bl_code")
+        values_bls["bl_code"] = bl_code
+
+
+    if container_code is not None:
+        fields_container.append("code = :container_code")
+        values_container["container_code"] = container_code
+    if size is not None:
+        fields_container.append("size = :size")
+        values_container["size"] = size
+    if type is not None:
+        fields_container.append("type = :type")
+        values_container["type"] = type
+    if contenido is not None:
+        fields_container.append("contenido = :contenido")
+        values_container["contenido"] = contenido
+
+    if not fields_container and not fields_bls:
         raise HTTPException(status_code=400, detail="No se proporcionaron campos para actualizar")
 
-    query = f"UPDATE containers SET {', '.join(fields)} WHERE id = :container_id"
+    # Bandera para saber si algo fue actualizado
+    filas_actualizadas = 0
 
-    try:
-        await database.execute(query=query, values=values)
-        return {"message": "Container actualizado parcialmente"}
-    except Exception as e:
-        return {"error": f"Error al actualizar parcialmente el container: {str(e)}"}
+    # Ejecutar la consulta para la tabla tracking si hay campos
+    if fields_container:
+        query_container = f"""
+            UPDATE containers
+            SET {', '.join(fields_container)}
+            WHERE id = (
+                SELECT id_container
+                FROM container_viaje
+                WHERE id =:id_container_viaje
+            )
+            RETURNING id;
+        """
+        # Ejecutar la consulta
+        resultado_c = await database.execute(query=query_container, values=values_container)
+        if resultado_c : filas_actualizadas += 1
+        print(f"Resultado del update container: {resultado_c}")
+
+    # Ejecutar la consulta para la tabla tracking si hay campos
+    if fields_bls:
+        query_bls = f"""
+            UPDATE bls
+            SET {', '.join(fields_bls)}
+            WHERE id = (
+                SELECT id_bl
+                FROM container_viaje
+                WHERE id =:id_container_viaje
+            )
+            RETURNING id;
+        """
+        # Ejecutar la consulta
+        resultado_b = await database.execute(query=query_bls, values=values_bls)
+        if resultado_b : filas_actualizadas += 1
+        print(f"Resultado del update container: {resultado_b}")
+
+    # Validar si se actualizaron filas
+    if filas_actualizadas == 0:
+        raise HTTPException(status_code=400, detail="No se pudo actualizar nada")
+
+    return {"message": "Actualización realizada con éxito"}

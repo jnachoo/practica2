@@ -25,7 +25,7 @@ async def requests(
             s.descripcion_status , r.mensaje,rr.descripcion as respuesta_request,
             b.fecha as fecha_bl, r.fecha as fecha_request   
             from requests r
-            join html_descargados_temp h on r.id_html = h.id
+            join html_descargados h on r.id_html = h.id
             join respuesta_requests rr on rr.id = r.id_respuesta 
             join bls b on b.id = r.id_bl
             join status_bl s on s.id = b.id_status 
@@ -80,7 +80,7 @@ async def requests_id_bl(
             select r.id as id_request,h.id as id_html, b.code as bl_code,s.descripcion_status , r.mensaje,rr.descripcion as respuesta_request,
             b.fecha as fecha_bl, r.fecha as fecha_request   
             from requests r
-            join html_descargados_temp h on r.id_html = h.id
+            join html_descargados h on r.id_html = h.id
             join respuesta_requests rr on rr.id = r.id_respuesta 
             join bls b on b.id = r.id_bl
             join status_bl s on s.id = b.id_status 
@@ -106,7 +106,7 @@ async def requests_code(
             select r.id as id_request,h.id as id_html, b.code as bl_code,s.descripcion_status , r.mensaje,rr.descripcion as respuesta_request,
             b.fecha as fecha_bl, r.fecha as fecha_request   
             from requests r
-            join html_descargados_temp h on r.id_html = h.id
+            join html_descargados h on r.id_html = h.id
             join respuesta_requests rr on rr.id = r.id_respuesta 
             join bls b on b.id = r.id_bl
             join status_bl s on s.id = b.id_status 
@@ -122,3 +122,117 @@ async def requests_code(
         return result
     except Exception as e:
         return {"error": f"Error al ejecutar la consulta filtro_request_code_bl: {str(e)}"}
+
+@router.patch("/requests/{id_request}")
+async def actualizar_parcial_request(
+    id_request: int,
+    id_html: int = Query(None),
+    bl_code: str = Query(None),
+    descripcion_status: str = Query(None),
+    mensaje: str = Query(None),
+    descripcion_respuesta: str = Query(None),
+    fecha_bl: str = Query(None),
+    fecha_request: str = Query(None)
+):
+    # Construir las consultas dinámicamente
+    fields_requests = []
+    fields_html = []
+    fields_bls = []
+    fields_respuesta_requests = []
+
+    values_requests = {"id_request": id_request}
+
+    # Campos para la tabla `requests`
+    if id_html is not None:
+        fields_requests.append("id_html = :id_html")
+        values_requests["id_html"] = id_html
+    if mensaje is not None:
+        fields_requests.append("mensaje = :mensaje")
+        values_requests["mensaje"] = mensaje
+
+    # Campos para la tabla `html_descargados`
+    if id_html is not None:
+        fields_html.append("id = :id_html")
+        values_requests["id_html"] = id_html
+
+    # Campos para la tabla `bls`
+    if bl_code is not None:
+        fields_bls.append("code = :bl_code")
+        values_requests["bl_code"] = bl_code
+    if fecha_bl is not None:
+        fields_bls.append("fecha = :fecha_bl")
+        values_requests["fecha_bl"] = fecha_bl
+
+    # Campos para la tabla `respuesta_requests`
+    if descripcion_respuesta is not None:
+        fields_respuesta_requests.append("descripcion = :descripcion_respuesta")
+        values_requests["descripcion_respuesta"] = descripcion_respuesta
+
+    # Validar que al menos un campo se proporcionó
+    if not (fields_requests or fields_html or fields_bls or fields_respuesta_requests):
+        raise HTTPException(status_code=400, detail="No se proporcionaron campos para actualizar")
+
+    # Bandera para saber si algo fue actualizado
+    filas_actualizadas = 0
+
+    # Ejecutar la consulta para la tabla `requests` si hay campos
+    if fields_requests:
+        query_requests = f"""
+            UPDATE requests
+            SET {', '.join(fields_requests)}
+            WHERE id = :id_request
+            RETURNING id;
+        """
+        resultado_requests = await database.execute(query=query_requests, values=values_requests)
+        if resultado_requests:
+            filas_actualizadas += 1
+        print(f"Resultado del update requests: {resultado_requests}")
+
+    # Ejecutar la consulta para la tabla `html_descargados` si hay campos
+    if fields_html:
+        query_html = f"""
+            UPDATE html_descargados
+            SET {', '.join(fields_html)}
+            WHERE id = :id_html
+            RETURNING id;
+        """
+        resultado_html = await database.execute(query=query_html, values=values_requests)
+        if resultado_html:
+            filas_actualizadas += 1
+        print(f"Resultado del update html_descargados: {resultado_html}")
+
+    # Ejecutar la consulta para la tabla `bls` si hay campos
+    if fields_bls:
+        # Asegúrate de que todas las claves necesarias están presentes
+        if "bl_code" not in values_requests:
+            raise HTTPException(status_code=400, detail="Falta el parámetro 'bl_code'")
+        query_bls = f"""
+            UPDATE bls
+            SET {', '.join(fields_bls)}
+            WHERE code = :bl_code
+            RETURNING id;
+        """
+        resultado_bls = await database.execute(query=query_bls, values=values_requests)
+        if resultado_bls:
+            filas_actualizadas += 1
+        print(f"Resultado del update bls: {resultado_bls}")
+
+
+    # Ejecutar la consulta para la tabla `respuesta_requests` si hay campos
+    if fields_respuesta_requests:
+        query_respuesta_requests = f"""
+            UPDATE respuesta_requests
+            SET {', '.join(fields_respuesta_requests)}
+            WHERE id = (SELECT id_respuesta FROM requests WHERE id = :id_request)
+            RETURNING id;
+        """
+        resultado_respuesta = await database.execute(query=query_respuesta_requests, values=values_requests)
+        if resultado_respuesta:
+            filas_actualizadas += 1
+        print(f"Resultado del update respuesta_requests: {resultado_respuesta}")
+
+    # Validar si algo fue actualizado
+    if filas_actualizadas == 0:
+        raise HTTPException(status_code=404, detail="No se encontró el registro para actualizar")
+
+    return {"mensaje": f"Se actualizaron {filas_actualizadas} tablas con éxito"}

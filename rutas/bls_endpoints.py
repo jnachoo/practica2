@@ -222,33 +222,122 @@ async def ver_bls_id(
         return result
     except Exception as e: return {"error": f"error al ejecutar la consulta filtro_navieras_bls{str(e)} "}
 
-@router.get("/bls/etapa/{etapa}")
-async def ver_bls_id(
-    etapa:str,
-    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 50
-    offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
-    ):
-    query = """                
-                select b.id,b.code as bl_code, e.nombre  as etapa,b.pol,b.pod, n.nombre  as naviera ,sb.descripcion_status as status, 
-                TO_CHAR(b.fecha, 'YYYY-MM-DD') as fecha ,TO_CHAR(b.proxima_revision, 'YYYY-MM-DD') as fecha_proxima_revision   
-                from bls b --875.294
-                join etapa e on e.id =b.id_etapa
-                join navieras n on n.id =b.id_naviera
-                join status_bl sb on b.id_status = sb.id
-                where e.nombre like :etapa
-                LIMIT :limit OFFSET :offset;
-            """
-    etapa = etapa.upper()
-    etapa = f"{etapa}%"
-    # Si no se encuentra la naviera, devolver el listado completo con un mensaje
-    try:
-        result = await database.fetch_all(query=query, values={"etapa": etapa,"limit": limit, "offset": offset})
-        if not result:
-            raise HTTPException(status_code=404, detail="Etapa de bl no encontrado")
-        return result
-    except Exception as e: return {"error": f"error al ejecutar la consulta filtro_etapa_bls{str(e)} "}
+@router.patch("/bls/{id_bls}")
+async def actualizar_parcial_bls(
+    id_bl: int,
+    bl_code: str = Query(None),
+    etapa: str = Query(None),
+    pol: str = Query(None),
+    pod: str = Query(None),
+    naviera: str = Query(None),
+    status: str = Query(None),
+    fecha: str = Query(None),
+    fecha_proxima_revision: str = Query(None)
+):
+    # Construir las consultas dinámicamente
+    fields_bls = []
+    values_bls = {"id_bl": id_bl}
+    fields_etapa = []
+    fields_navieras = []
+    fields_status = []
 
-#-----------POST----------
-#-----------POST----------
-#-----------POST----------
+    # Campos para la tabla `bls`
+    if bl_code is not None:
+        fields_bls.append("code = :bl_code")
+        values_bls["bl_code"] = bl_code
+    if pol is not None:
+        if pol == "null": pol = None
+        fields_bls.append("pol = :pol")
+        values_bls["pol"] = pol
+    if pod is not None:
+        if pod == "null": pod = None
+        fields_bls.append("pod = :pod")
+        values_bls["pod"] = pod
+    if fecha is not None:
+        fields_bls.append("fecha = :fecha")
+        values_bls["fecha"] = fecha
+    if fecha_proxima_revision is not None:
+        fields_bls.append("proxima_revision = :fecha_proxima_revision")
+        values_bls["fecha_proxima_revision"] = fecha_proxima_revision
+
+    # Campos para la tabla `etapa`
+    if etapa is not None:
+        fields_etapa.append("nombre = :etapa")
+        values_bls["etapa"] = etapa
+
+    # Campos para la tabla `navieras`
+    if naviera is not None:
+        fields_navieras.append("nombre = :naviera")
+        values_bls["naviera"] = naviera
+
+    # Campos para la tabla `status_bl`
+    if status is not None:
+        fields_status.append("descripcion_status = :status")
+        values_bls["status"] = status
+
+    # Validar que al menos un campo se proporcionó
+    if not (fields_bls or fields_etapa or fields_navieras or fields_status):
+        raise HTTPException(status_code=400, detail="No se proporcionaron campos para actualizar")
+
+    # Bandera para saber si algo fue actualizado
+    filas_actualizadas = 0
+
+    # Ejecutar la consulta para la tabla `bls` si hay campos
+    if fields_bls:
+        query_bls = f"""
+            UPDATE bls
+            SET {', '.join(fields_bls)}
+            WHERE id = :id_bl
+            RETURNING id;
+        """
+        resultado_bls = await database.execute(query=query_bls, values=values_bls)
+        if resultado_bls:
+            filas_actualizadas += 1
+        print(f"Resultado del update bls: {resultado_bls}")
+
+    # Ejecutar la consulta para la tabla `etapa` si hay campos
+    if fields_etapa:
+        query_etapa = f"""
+            UPDATE etapa
+            SET {', '.join(fields_etapa)}
+            WHERE id = (SELECT id_etapa FROM bls WHERE id = :id_bl)
+            RETURNING id;
+        """
+        resultado_etapa = await database.execute(query=query_etapa, values=values_bls)
+        if resultado_etapa:
+            filas_actualizadas += 1
+        print(f"Resultado del update etapa: {resultado_etapa}")
+
+    # Ejecutar la consulta para la tabla `navieras` si hay campos
+    if fields_navieras:
+        query_navieras = f"""
+            UPDATE navieras
+            SET {', '.join(fields_navieras)}
+            WHERE id = (SELECT id_naviera FROM bls WHERE id = :id_bl)
+            RETURNING id;
+        """
+        resultado_navieras = await database.execute(query=query_navieras, values=values_bls)
+        if resultado_navieras:
+            filas_actualizadas += 1
+        print(f"Resultado del update navieras: {resultado_navieras}")
+
+    # Ejecutar la consulta para la tabla `status_bl` si hay campos
+    if fields_status:
+        query_status = f"""
+            UPDATE status_bl
+            SET {', '.join(fields_status)}
+            WHERE id = (SELECT id_status FROM bls WHERE id = :id_bl)
+            RETURNING id;
+        """
+        resultado_status = await database.execute(query=query_status, values=values_bls)
+        if resultado_status:
+            filas_actualizadas += 1
+        print(f"Resultado del update status_bl: {resultado_status}")
+
+    # Validar si algo fue actualizado
+    if filas_actualizadas == 0:
+        raise HTTPException(status_code=404, detail="No se encontró el registro para actualizar")
+
+    return {"mensaje": f"Se actualizaron {filas_actualizadas} tablas con éxito"}
+
 
