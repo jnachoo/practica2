@@ -236,10 +236,14 @@ async def actualizar_parcial_bls(
 ):
     # Construir las consultas dinámicamente
     fields_bls = []
-    values_bls = {"id_bl": id_bl}
     fields_etapa = []
     fields_navieras = []
     fields_status = []
+
+    values_bls = {"id_bl": id_bl}
+    values_etapa = {"id_bl": id_bl}
+    values_navieras = {"id_bl": id_bl}
+    values_status = {"id_bl": id_bl}
 
     # Campos para la tabla `bls`
     if bl_code is not None:
@@ -254,26 +258,28 @@ async def actualizar_parcial_bls(
         fields_bls.append("pod = :pod")
         values_bls["pod"] = pod
     if fecha is not None:
+        fecha = datetime.strptime(fecha, "%Y-%m-%d").date()
         fields_bls.append("fecha = :fecha")
         values_bls["fecha"] = fecha
     if fecha_proxima_revision is not None:
+        fecha_proxima_revision = datetime.strptime(fecha_proxima_revision, "%Y-%m-%d").date()
         fields_bls.append("proxima_revision = :fecha_proxima_revision")
         values_bls["fecha_proxima_revision"] = fecha_proxima_revision
 
     # Campos para la tabla `etapa`
     if etapa is not None:
         fields_etapa.append("nombre = :etapa")
-        values_bls["etapa"] = etapa
+        values_etapa["etapa"] = etapa
 
     # Campos para la tabla `navieras`
     if naviera is not None:
         fields_navieras.append("nombre = :naviera")
-        values_bls["naviera"] = naviera
+        values_navieras["naviera"] = naviera
 
     # Campos para la tabla `status_bl`
     if status is not None:
         fields_status.append("descripcion_status = :status")
-        values_bls["status"] = status
+        values_status["status"] = status
 
     # Validar que al menos un campo se proporcionó
     if not (fields_bls or fields_etapa or fields_navieras or fields_status):
@@ -303,7 +309,7 @@ async def actualizar_parcial_bls(
             WHERE id = (SELECT id_etapa FROM bls WHERE id = :id_bl)
             RETURNING id;
         """
-        resultado_etapa = await database.execute(query=query_etapa, values=values_bls)
+        resultado_etapa = await database.execute(query=query_etapa, values=values_etapa)
         if resultado_etapa:
             filas_actualizadas += 1
         print(f"Resultado del update etapa: {resultado_etapa}")
@@ -316,7 +322,7 @@ async def actualizar_parcial_bls(
             WHERE id = (SELECT id_naviera FROM bls WHERE id = :id_bl)
             RETURNING id;
         """
-        resultado_navieras = await database.execute(query=query_navieras, values=values_bls)
+        resultado_navieras = await database.execute(query=query_navieras, values=values_navieras)
         if resultado_navieras:
             filas_actualizadas += 1
         print(f"Resultado del update navieras: {resultado_navieras}")
@@ -329,7 +335,7 @@ async def actualizar_parcial_bls(
             WHERE id = (SELECT id_status FROM bls WHERE id = :id_bl)
             RETURNING id;
         """
-        resultado_status = await database.execute(query=query_status, values=values_bls)
+        resultado_status = await database.execute(query=query_status, values=values_status)
         if resultado_status:
             filas_actualizadas += 1
         print(f"Resultado del update status_bl: {resultado_status}")

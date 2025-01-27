@@ -24,7 +24,7 @@ async def requests(
     query = """
             select r.id as id_request,h.id as id_html, b.code as bl_code,
             s.descripcion_status , r.mensaje,rr.descripcion as respuesta_request,
-            b.fecha as fecha_bl, r.fecha as fecha_request   
+            b.fecha as fecha_bl, TO_CHAR(r.fecha, 'YYYY-MM-DD HH24:MI:SS') as fecha_request 
             from requests r
             join html_descargados h on r.id_html = h.id
             join respuesta_requests rr on rr.id = r.id_respuesta 
@@ -143,14 +143,16 @@ async def actualizar_parcial_request(
     fields_respuesta_requests = []
 
     values_requests = {"id_request": id_request}
-    values_respuesta_requests = {}
-    values_status = {}
+    values_respuesta_requests = {"id_request": id_request}
+    values_status = {"id_request": id_request}
+    values_bls = {"id_request": id_request}
 
     # Campos para la tabla `requests`
     if mensaje is not None:
         fields_requests.append("mensaje = :mensaje")
         values_requests["mensaje"] = mensaje
     if fecha_request is not None:
+        fecha_request = datetime.strptime(fecha_request, "%Y-%m-%d %H:%M:%S")
         fields_requests.append("fecha = :fecha_request")
         values_requests["fecha_request"] = fecha_request 
 
@@ -162,22 +164,22 @@ async def actualizar_parcial_request(
     # Campos para la tabla `bls`
     if bl_code is not None:
         fields_bls.append("code = :bl_code")
-        values_requests["bl_code"] = bl_code
+        values_bls["bl_code"] = bl_code
     if fecha_bl is not None:
         fecha_bl = datetime.strptime(fecha_bl, "%Y-%m-%d").date()
         fields_bls.append("fecha = :fecha_bl")
-        values_requests["fecha_bl"] = fecha_bl
+        values_bls["fecha_bl"] = fecha_bl
 
     # Campos para la tabla `respuesta_requests`
     if descripcion_respuesta is not None:
         fields_respuesta_requests.append("descripcion = :descripcion_respuesta")
-        values_requests["descripcion_respuesta"] = descripcion_respuesta
+        values_respuesta_requests["descripcion_respuesta"] = descripcion_respuesta
     
     # Campos para la tabla status_bl
     if descripcion_status is not None:
         descripcion_status = unquote(descripcion_status)
         fields_status.append("descripcion_status =:descripcion_status")
-        values_requests["descripcion_status"] = descripcion_status
+        values_status["descripcion_status"] = descripcion_status
 
     # Validar que al menos un campo se proporcionó
     if not (fields_requests or fields_html or fields_bls or fields_respuesta_requests or fields_status):
@@ -209,7 +211,7 @@ async def actualizar_parcial_request(
             WHERE id = (SELECT id_bl FROM requests WHERE id = :id_request)
             RETURNING id;
         """
-        resultado_bls = await database.execute(query=query_bls, values=values_requests)
+        resultado_bls = await database.execute(query=query_bls, values=values_bls)
         if resultado_bls:
             filas_actualizadas += 1
         print(f"Resultado del update bls: {resultado_bls}")
@@ -223,7 +225,7 @@ async def actualizar_parcial_request(
             WHERE id = (SELECT id_respuesta FROM requests WHERE id = :id_request)
             RETURNING id;
         """
-        resultado_respuesta = await database.execute(query=query_respuesta_requests, values=values_requests)
+        resultado_respuesta = await database.execute(query=query_respuesta_requests, values=values_respuesta_requests)
         if resultado_respuesta:
             filas_actualizadas += 1
         print(f"Resultado del update respuesta_requests: {resultado_respuesta}")
@@ -236,7 +238,7 @@ async def actualizar_parcial_request(
             WHERE id = (SELECT id_status FROM bls WHERE id = (SELECT id_bl FROM requests WHERE id = :id_request))
             RETURNING id;
         """
-        resultado_status = await database.execute(query=query_status, values=values_requests)
+        resultado_status = await database.execute(query=query_status, values=values_status)
         if resultado_status:
             filas_actualizadas += 1
         print(f"Resultado del update status: {resultado_status}")
