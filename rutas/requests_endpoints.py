@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException,Query
 from database import database
 from datetime import datetime
+from urllib.parse import unquote
 
 router = APIRouter()
 
@@ -16,7 +17,7 @@ async def requests(
     bl_status: str = Query(None),
     mensaje: str = Query(None),
     respuesta_request: str = Query(None),
-    order_by: str = Query(None, regex="^(r\\.id|h\\.id|b\\.code|s\\.descripcion_status|r\\.mensaje|rr\\.descripcion|b\\.fecha)$"),  # Campos válidos para ordenación
+    order_by: str = Query(None, regex="^(r\\.id|h\\.id|b\\.code|s\\.descripcion_status|r\\.mensaje|rr\\.descripcion|b\\.fecha|r\\.fecha)$"),  # Campos válidos para ordenación
     order: str = Query("ASC", regex="^(ASC|DESC|asc|desc)$")    
 ):
 
@@ -126,7 +127,7 @@ async def requests_code(
 @router.patch("/requests/{id_request}")
 async def actualizar_parcial_request(
     id_request: int,
-    id_html: int = Query(None),
+    #id_html: int = Query(None),
     bl_code: str = Query(None),
     descripcion_status: str = Query(None),
     mensaje: str = Query(None),
@@ -138,28 +139,32 @@ async def actualizar_parcial_request(
     fields_requests = []
     fields_html = []
     fields_bls = []
+    fields_status = []
     fields_respuesta_requests = []
 
     values_requests = {"id_request": id_request}
+    values_respuesta_requests = {}
+    values_status = {}
 
     # Campos para la tabla `requests`
-    if id_html is not None:
-        fields_requests.append("id_html = :id_html")
-        values_requests["id_html"] = id_html
     if mensaje is not None:
         fields_requests.append("mensaje = :mensaje")
         values_requests["mensaje"] = mensaje
+    if fecha_request is not None:
+        fields_requests.append("fecha = :fecha_request")
+        values_requests["fecha_request"] = fecha_request 
 
     # Campos para la tabla `html_descargados`
-    if id_html is not None:
-        fields_html.append("id = :id_html")
-        values_requests["id_html"] = id_html
+    #if id_html is not None:
+    #    fields_html.append("id = :id_html")
+    #    values_requests["id_html"] = id_html
 
     # Campos para la tabla `bls`
     if bl_code is not None:
         fields_bls.append("code = :bl_code")
         values_requests["bl_code"] = bl_code
     if fecha_bl is not None:
+        fecha_bl = datetime.strptime(fecha_bl, "%Y-%m-%d").date()
         fields_bls.append("fecha = :fecha_bl")
         values_requests["fecha_bl"] = fecha_bl
 
@@ -167,9 +172,15 @@ async def actualizar_parcial_request(
     if descripcion_respuesta is not None:
         fields_respuesta_requests.append("descripcion = :descripcion_respuesta")
         values_requests["descripcion_respuesta"] = descripcion_respuesta
+    
+    # Campos para la tabla status_bl
+    if descripcion_status is not None:
+        descripcion_status = unquote(descripcion_status)
+        fields_status.append("descripcion_status =:descripcion_status")
+        values_requests["descripcion_status"] = descripcion_status
 
     # Validar que al menos un campo se proporcionó
-    if not (fields_requests or fields_html or fields_bls or fields_respuesta_requests):
+    if not (fields_requests or fields_html or fields_bls or fields_respuesta_requests or fields_status):
         raise HTTPException(status_code=400, detail="No se proporcionaron campos para actualizar")
 
     # Bandera para saber si algo fue actualizado
@@ -188,28 +199,14 @@ async def actualizar_parcial_request(
             filas_actualizadas += 1
         print(f"Resultado del update requests: {resultado_requests}")
 
-    # Ejecutar la consulta para la tabla `html_descargados` si hay campos
-    if fields_html:
-        query_html = f"""
-            UPDATE html_descargados
-            SET {', '.join(fields_html)}
-            WHERE id = :id_html
-            RETURNING id;
-        """
-        resultado_html = await database.execute(query=query_html, values=values_requests)
-        if resultado_html:
-            filas_actualizadas += 1
-        print(f"Resultado del update html_descargados: {resultado_html}")
 
     # Ejecutar la consulta para la tabla `bls` si hay campos
     if fields_bls:
         # Asegúrate de que todas las claves necesarias están presentes
-        if "bl_code" not in values_requests:
-            raise HTTPException(status_code=400, detail="Falta el parámetro 'bl_code'")
         query_bls = f"""
             UPDATE bls
             SET {', '.join(fields_bls)}
-            WHERE code = :bl_code
+            WHERE id = (SELECT id_bl FROM requests WHERE id = :id_request)
             RETURNING id;
         """
         resultado_bls = await database.execute(query=query_bls, values=values_requests)
@@ -230,6 +227,19 @@ async def actualizar_parcial_request(
         if resultado_respuesta:
             filas_actualizadas += 1
         print(f"Resultado del update respuesta_requests: {resultado_respuesta}")
+
+    # Ejecutar la consulta para la tabla `html_descargados` si hay campos
+    if fields_status:
+        query_status = f"""
+            UPDATE status_bl
+            SET {', '.join(fields_status)}
+            WHERE id = (SELECT id_status FROM bls WHERE id = (SELECT id_bl FROM requests WHERE id = :id_request))
+            RETURNING id;
+        """
+        resultado_status = await database.execute(query=query_status, values=values_requests)
+        if resultado_status:
+            filas_actualizadas += 1
+        print(f"Resultado del update status: {resultado_status}")
 
     # Validar si algo fue actualizado
     if filas_actualizadas == 0:
