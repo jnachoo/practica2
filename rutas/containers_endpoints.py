@@ -76,10 +76,10 @@ async def ver_container(
     offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
     ):
     query = """
-                select c.code as container_code , b.code as bl_code ,c.size,c.type,c.contenido
-                from containers c 
-                join container_viaje cv on cv.id_container = c.id 
-                join bls b on b.id = cv.id_bl
+                SELECT cv.id as id_container_viaje,c.code AS container_code, b.code AS bl_code, c.size, c.type, c.contenido
+                FROM containers c
+                JOIN container_viaje cv ON cv.id_container = c.id
+                JOIN bls b ON b.id = cv.id_bl
                 where c.code like :code
                 LIMIT :limit OFFSET :offset;
             """
@@ -98,10 +98,10 @@ async def ver_container(
     offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
     ):
     query = """
-                select c.code as container_code , b.code as bl_code ,c.size,c.type,c.contenido
-                from containers c 
-                join container_viaje cv on cv.id_container = c.id 
-                join bls b on b.id = cv.id_bl
+                SELECT cv.id as id_container_viaje,c.code AS container_code, b.code AS bl_code, c.size, c.type, c.contenido
+                FROM containers c
+                JOIN container_viaje cv ON cv.id_container = c.id
+                JOIN bls b ON b.id = cv.id_bl
                 where b.code like :code
                 LIMIT :limit OFFSET :offset;
             """
@@ -121,10 +121,10 @@ async def ver_container(
     offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
     ):
     query = """
-                select c.code as container_code , b.code as bl_code ,c.size,c.type,c.contenido
-                from containers c 
-                join container_viaje cv on cv.id_container = c.id 
-                join bls b on b.id = cv.id_bl 
+                SELECT cv.id as id_container_viaje,c.code AS container_code, b.code AS bl_code, c.size, c.type, c.contenido
+                FROM containers c
+                JOIN container_viaje cv ON cv.id_container = c.id
+                JOIN bls b ON b.id = cv.id_bl
                 where c.code like :code
                 LIMIT :limit OFFSET :offset;
             """

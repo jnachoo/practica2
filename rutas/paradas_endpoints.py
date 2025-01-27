@@ -90,8 +90,8 @@ async def ver_paradas(
     offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
     ):
     query = """
-                select b.code as bl_code,t.orden,t.status,p.locode,p.pais,p.lugar,
-                t.is_pol ,t.is_pod 
+                SELECT t.id as id_tracking,b.code AS bl_code, t.orden, t.status, p.locode, p.pais, p.lugar,
+               t.is_pol, t.is_pod
                 from tracking t
                 join paradas p on p.id = t.id_parada
                 join bls b on b.id = t.id_bl
@@ -117,8 +117,8 @@ async def ver_paradas_locode(
     offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
     ):
     query = """
-                select b.code as bl_code,t.orden,t.status,p.locode,p.pais,p.lugar,
-                t.is_pol ,t.is_pod 
+                SELECT t.id as id_tracking,b.code AS bl_code, t.orden, t.status, p.locode, p.pais, p.lugar,
+               t.is_pol, t.is_pod 
                 from tracking t
                 join paradas p on p.id = t.id_parada
                 join bls b on b.id = t.id_bl
@@ -147,8 +147,8 @@ async def ver_paradas_pais(
     offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
 ):
     query = """
-                select b.code as bl_code,t.orden,t.status,p.locode,p.pais,p.lugar,
-                t.is_pol ,t.is_pod 
+                SELECT t.id as id_tracking,b.code AS bl_code, t.orden, t.status, p.locode, p.pais, p.lugar,
+               t.is_pol, t.is_pod
                 from tracking t
                 join paradas p on p.id = t.id_parada
                 join bls b on b.id = t.id_bl
