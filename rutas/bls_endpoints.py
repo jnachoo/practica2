@@ -21,7 +21,7 @@ async def super_filtro_bls(
     fecha: str = Query(None, regex=r"^\d{4}-\d{2}-\d{2}$"),  # Fecha en formato YYYY-MM-DD
     fecha_proxima_revision: str = Query(None, regex=r"^\d{4}-\d{2}-\d{2}$"),  # Próxima revisión
     order_by: str = Query(None,
-        regex=r"^(b\.code|e\.nombre|b\.pol|b\.pod|n\.nombre|sb\.descripcion_status|b\.fecha|b\.proxima_revision)$"), # Campos válidos para ordenación
+        regex="^(b\\.code|e\\.nombre|b\\.pol|b\\.pod|n\\.nombre|sb\\.descripcion_status|b\\.fecha|b\\.proxima_revision|b\\.id)$"), # Campos válidos para ordenación
     order: str = Query("ASC", regex="^(ASC|DESC|asc|desc)$"),  # Dirección de ordenación
     limit: int = Query(500, ge=1),  # Número de resultados por página
     offset: int = Query(0, ge=0),  # Índice de inicio
@@ -347,3 +347,66 @@ async def actualizar_parcial_bls(
     return {"mensaje": f"Se actualizaron {filas_actualizadas} tablas con éxito"}
 
 
+
+@router.post("/bls/")
+async def insertar_bls(
+    url: str,
+    mensaje: str,
+    sucess: bool,
+    id_bl: int = Query(None),
+    id_html: int = Query(None),
+    id_respuesta: int = Query(None),
+    fecha: str = Query(None),
+):
+    """
+    Endpoint para insertar un nuevo registro en la tabla requests.
+    Si no se especifica id_bl o id_html, se ofrece la posibilidad de crearlos.
+    """
+    try:
+        # Validar parámetros obligatorios
+        if not url or not mensaje or sucess is None:
+            raise HTTPException(status_code=400, detail="Los campos 'url', 'fecha', 'mensaje' y 'sucess' son obligatorios.")
+        
+        if not id_bl: id_bl = None #Asignar null en caso de no existir
+        if not id_html: id_html = None #Asignar null en caso de no existir
+        if not id_respuesta: id_respuesta = None #Asignar null en caso de no existir
+        
+        # Convertir fecha de string a timestamp
+        if fecha:
+            try:
+                fecha = datetime.strptime(fecha, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                raise HTTPException(
+                    status_code=400, detail="Formato de 'fecha' inválido. Use el formato YYYY-MM-DD HH:MM:SS."
+                )
+        else:
+            fecha = datetime.now()  # Usar fecha actual si no se proporciona
+        
+        # Insertar el registro en la tabla 'requests'
+        query_request = """
+            INSERT INTO requests (id_bl, url, fecha, mensaje, sucess, id_html, id_respuesta)
+            VALUES (:id_bl, :url, :fecha, :mensaje, :sucess, :id_html, :id_respuesta)
+            RETURNING id;
+        """
+        values_request = {
+            "id_bl": id_bl,
+            "url": url,
+            "fecha": fecha,
+            "mensaje": mensaje,
+            "sucess": sucess,
+            "id_html": id_html,
+            "id_respuesta": id_respuesta,
+        }
+        result_request = await database.execute(query_request, values_request)
+        #id_request = result_request.scalar()
+
+        if not result_request:
+            raise HTTPException(status_code=500, detail="Error al insertar el registro en 'requests'.")
+
+        return {"message": "Request creado exitosamente", "id_request": result_request}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al insertar el request: {str(e)}")
+
+
+    

@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException,Query
+from fastapi import APIRouter, HTTPException,Query, Depends
 from database import database
+from sqlalchemy import text
 from datetime import datetime
 from urllib.parse import unquote
 
@@ -248,3 +249,67 @@ async def actualizar_parcial_request(
         raise HTTPException(status_code=404, detail="No se encontró el registro para actualizar")
 
     return {"mensaje": f"Se actualizaron {filas_actualizadas} tablas con éxito"}
+
+
+@router.post("/requests/")
+async def insertar_request(
+    url: str,
+    mensaje: str,
+    sucess: bool,
+    id_bl: int = Query(None),
+    id_html: int = Query(None),
+    id_respuesta: int = Query(None),
+    fecha: str = Query(None),
+):
+    """
+    Endpoint para insertar un nuevo registro en la tabla requests.
+    Si no se especifica id_bl o id_html, se ofrece la posibilidad de crearlos.
+    """
+    try:
+        # Validar parámetros obligatorios
+        if not url or not mensaje or sucess is None:
+            raise HTTPException(status_code=400, detail="Los campos 'url', 'fecha', 'mensaje' y 'sucess' son obligatorios.")
+        
+        if not id_bl: id_bl = None #Asignar null en caso de no existir
+        if not id_html: id_html = None #Asignar null en caso de no existir
+        if not id_respuesta: id_respuesta = None #Asignar null en caso de no existir
+        
+        # Convertir fecha de string a timestamp
+        if fecha:
+            try:
+                fecha = datetime.strptime(fecha, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                raise HTTPException(
+                    status_code=400, detail="Formato de 'fecha' inválido. Use el formato YYYY-MM-DD HH:MM:SS."
+                )
+        else:
+            fecha = datetime.now()  # Usar fecha actual si no se proporciona
+        
+        # Insertar el registro en la tabla 'requests'
+        query_request = """
+            INSERT INTO requests (id_bl, url, fecha, mensaje, sucess, id_html, id_respuesta)
+            VALUES (:id_bl, :url, :fecha, :mensaje, :sucess, :id_html, :id_respuesta)
+            RETURNING id;
+        """
+        values_request = {
+            "id_bl": id_bl,
+            "url": url,
+            "fecha": fecha,
+            "mensaje": mensaje,
+            "sucess": sucess,
+            "id_html": id_html,
+            "id_respuesta": id_respuesta,
+        }
+        result_request = await database.execute(query_request, values_request)
+        #id_request = result_request.scalar()
+
+        if not result_request:
+            raise HTTPException(status_code=500, detail="Error al insertar el registro en 'requests'.")
+
+        return {"message": "Request creado exitosamente", "id_request": result_request}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al insertar el request: {str(e)}")
+
+
+    
