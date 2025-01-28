@@ -146,37 +146,84 @@ async def actualizar_parcial_container(
     type: str = Query(None),
     contenido: str = Query(None)
 ):
+    
+    """En este endpoint puedes actualizar la tabla container_viaje y containers.
+    Si cambias el codigo del container automaticamente se cambiaran los demás datos asociados.
+    Si quieres modificar solo los datos del container, debes modificar los campos size, type, contenido."""
+
     # Construir la consulta dinámicamente
     fields_container = []
-    values_container = {"id_container_viaje": id_container_viaje}
+    fields_container_viaje = []
     fields_bls = []
+
+    values_container_viaje = {"id_container_viaje": id_container_viaje}
+    values_container = {"id_container_viaje": id_container_viaje}
     values_bls = {"id_container_viaje": id_container_viaje}
 
+    ayuda_container_code = 0
+
     if bl_code is not None:
+        bl_code = bl_code.upper()
+        query_check_bl_code = "SELECT COUNT(*) FROM bls WHERE code = :bl_code"
+        count_bl_code = await database.fetch_val(query_check_bl_code, {"bl_code": bl_code})
+        if count_bl_code == 0:
+            raise HTTPException(status_code=400, detail="El bl_code no existe en la tabla 'bls'.")
         fields_bls.append("code = :bl_code")
         values_bls["bl_code"] = bl_code
 
-
+    
     if container_code is not None:
-        fields_container.append("code = :container_code")
-        values_container["container_code"] = container_code
+        container_code = container_code.upper()
+        query_check_container_code = "SELECT id FROM containers WHERE code = :container_code"
+        ayuda_container_code = await database.fetch_val(query_check_container_code, {"container_code": container_code})
+        if ayuda_container_code == 0 or ayuda_container_code is None:
+            raise HTTPException(status_code=400, detail="El codigo de container no existe en la tabla 'containers'.")
+        fields_container_viaje.append("id_container = :ayuda_container_code")
+        values_container_viaje["ayuda_container_code"] = ayuda_container_code
+
     if size is not None:
+        query_check_size = "SELECT COUNT(*) FROM containers WHERE size = :size"
+        count_size = await database.fetch_val(query_check_size, {"size": size})
+        if count_size == 0:
+            raise HTTPException(status_code=400, detail="El size no existe en la tabla 'containers'.")
         fields_container.append("size = :size")
         values_container["size"] = size
+
     if type is not None:
+        query_check_type = "SELECT COUNT(*) FROM containers WHERE type = :type"
+        count_type = await database.fetch_val(query_check_type, {"type": type})
+        if count_type == 0:
+            raise HTTPException(status_code=400, detail="El type no existe en la tabla 'containers'.")
         fields_container.append("type = :type")
         values_container["type"] = type
+
     if contenido is not None:
+        query_check_contenido = "SELECT COUNT(*) FROM containers WHERE contenido = :contenido"
+        count_contenido = await database.fetch_val(query_check_contenido, {"contenido": contenido})
+        if count_contenido == 0:
+            raise HTTPException(status_code=400, detail="El tipo de contenido no existe en la tabla 'containers'.")
         fields_container.append("contenido = :contenido")
         values_container["contenido"] = contenido
 
-    if not fields_container and not fields_bls:
+    if not fields_container and not fields_bls and not fields_container_viaje:
         raise HTTPException(status_code=400, detail="No se proporcionaron campos para actualizar")
 
     # Bandera para saber si algo fue actualizado
     filas_actualizadas = 0
 
     # Ejecutar la consulta para la tabla tracking si hay campos
+    if fields_container_viaje:
+        query_container_viaje = f"""
+            UPDATE container_viaje
+            SET {', '.join(fields_container_viaje)}
+            WHERE id =:id_container_viaje
+            RETURNING id;
+        """
+        # Ejecutar la consulta
+        resultado_cv = await database.execute(query=query_container_viaje, values=values_container_viaje)
+        if resultado_cv : filas_actualizadas += 1
+        print(f"Resultado del update container: {resultado_cv}")
+
     if fields_container:
         query_container = f"""
             UPDATE containers

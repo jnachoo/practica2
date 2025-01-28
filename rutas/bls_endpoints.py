@@ -245,22 +245,40 @@ async def actualizar_parcial_bls(
     values_navieras = {"id_bl": id_bl}
     values_status = {"id_bl": id_bl}
 
+    # Variables de ayuda para la edición de filas
+    ayuda_etapa = 0
+    ayuda_naviera = 0
+    ayuda_status = 0
+
     # Campos para la tabla `bls`
     if bl_code is not None:
         fields_bls.append("code = :bl_code")
         values_bls["bl_code"] = bl_code
     if pol is not None:
+        pol = pol.upper()
+        query_check_pol = "SELECT COUNT(*) FROM bls WHERE pol = :pol"
+        count_pol = await database.fetch_val(query_check_pol, {"pol": pol})
+        if count_pol == 0:
+            raise HTTPException(status_code=400, detail="El pol no existe en la tabla 'bls'.")
         if pol == "null": pol = None
         fields_bls.append("pol = :pol")
         values_bls["pol"] = pol
+    
     if pod is not None:
+        pod = pod.upper()
+        query_check_pod = "SELECT COUNT(*) FROM bls WHERE pod = :pod"
+        count_pod = await database.fetch_val(query_check_pod, {"pod": pod})
+        if count_pod == 0:
+            raise HTTPException(status_code=400, detail="El pod no existe en la tabla 'bls'.")
         if pod == "null": pod = None
         fields_bls.append("pod = :pod")
         values_bls["pod"] = pod
+
     if fecha is not None:
         fecha = datetime.strptime(fecha, "%Y-%m-%d").date()
         fields_bls.append("fecha = :fecha")
         values_bls["fecha"] = fecha
+
     if fecha_proxima_revision is not None:
         fecha_proxima_revision = datetime.strptime(fecha_proxima_revision, "%Y-%m-%d").date()
         fields_bls.append("proxima_revision = :fecha_proxima_revision")
@@ -268,18 +286,37 @@ async def actualizar_parcial_bls(
 
     # Campos para la tabla `etapa`
     if etapa is not None:
-        fields_etapa.append("nombre = :etapa")
-        values_etapa["etapa"] = etapa
+        etapa = etapa.upper()
+        query_check_etapa = "SELECT id FROM etapa WHERE nombre = :etapa"
+        ayuda_etapa = await database.fetch_val(query_check_etapa, {"etapa": etapa})
+        print(ayuda_etapa)
+        if ayuda_etapa == 0 or ayuda_etapa is None:
+            raise HTTPException(status_code=400, detail="La etapa no existe en la tabla 'bls'.")
+        fields_etapa.append("id_etapa = :ayuda_etapa")
+        values_etapa["ayuda_etapa"] = ayuda_etapa
 
     # Campos para la tabla `navieras`
     if naviera is not None:
-        fields_navieras.append("nombre = :naviera")
-        values_navieras["naviera"] = naviera
+        naviera = naviera.upper()
+        query_check_naviera = "SELECT id FROM navieras WHERE nombre = :naviera"
+        ayuda_naviera = await database.fetch_val(query_check_naviera, {"naviera": naviera})
+        print(ayuda_naviera)
+        if ayuda_naviera == 0 or ayuda_naviera is None:
+            raise HTTPException(status_code=400, detail="La naviera no existe en la tabla 'bls'.")
+        fields_navieras.append("id_naviera = :ayuda_naviera")
+        values_navieras["ayuda_naviera"] = ayuda_naviera
 
     # Campos para la tabla `status_bl`
     if status is not None:
-        fields_status.append("descripcion_status = :status")
-        values_status["status"] = status
+        #status = status.upper()
+        query_check_status = "SELECT id FROM status_bl WHERE descripcion_status = :status"
+        ayuda_status = await database.fetch_val(query_check_status, {"status": status})
+        print("Status",status)
+        print("query:",ayuda_status)
+        if ayuda_status == 0 or ayuda_status is None:
+            raise HTTPException(status_code=400, detail="El status no existe en la tabla 'bls'.")
+        fields_status.append("id_status = :ayuda_status")
+        values_status["ayuda_status"] = ayuda_status
 
     # Validar que al menos un campo se proporcionó
     if not (fields_bls or fields_etapa or fields_navieras or fields_status):
@@ -304,9 +341,9 @@ async def actualizar_parcial_bls(
     # Ejecutar la consulta para la tabla `etapa` si hay campos
     if fields_etapa:
         query_etapa = f"""
-            UPDATE etapa
+            UPDATE bls
             SET {', '.join(fields_etapa)}
-            WHERE id = (SELECT id_etapa FROM bls WHERE id = :id_bl)
+            WHERE id = :id_bl
             RETURNING id;
         """
         resultado_etapa = await database.execute(query=query_etapa, values=values_etapa)
@@ -317,9 +354,9 @@ async def actualizar_parcial_bls(
     # Ejecutar la consulta para la tabla `navieras` si hay campos
     if fields_navieras:
         query_navieras = f"""
-            UPDATE navieras
+            UPDATE bls
             SET {', '.join(fields_navieras)}
-            WHERE id = (SELECT id_naviera FROM bls WHERE id = :id_bl)
+            WHERE id = :id_bl
             RETURNING id;
         """
         resultado_navieras = await database.execute(query=query_navieras, values=values_navieras)
@@ -330,9 +367,9 @@ async def actualizar_parcial_bls(
     # Ejecutar la consulta para la tabla `status_bl` si hay campos
     if fields_status:
         query_status = f"""
-            UPDATE status_bl
+            UPDATE bls
             SET {', '.join(fields_status)}
-            WHERE id = (SELECT id_status FROM bls WHERE id = :id_bl)
+            WHERE id = :id_bl
             RETURNING id;
         """
         resultado_status = await database.execute(query=query_status, values=values_status)
@@ -350,63 +387,93 @@ async def actualizar_parcial_bls(
 
 @router.post("/bls/")
 async def insertar_bls(
-    url: str,
-    mensaje: str,
-    sucess: bool,
-    id_bl: int = Query(None),
-    id_html: int = Query(None),
-    id_respuesta: int = Query(None),
-    fecha: str = Query(None),
+    code: str,
+    id_naviera: int,
+    id_etapa: int,
+    fecha: str,
+    proxima_revision: str,
+    id_status: int,
+    id_carga: int,
+    nave: str = Query(None),
+    mercado: str = Query(None),
+    pol: str = Query(None),
+    pod: str = Query(None),
+    revisado_con_exito: bool = Query(None),
+    manual_pendiente: bool = Query(None),
+    no_revisar: bool = Query(None),
+    revisado_hoy: bool = Query(None),
+    html_descargado: bool = Query(None),
 ):
     """
-    Endpoint para insertar un nuevo registro en la tabla requests.
-    Si no se especifica id_bl o id_html, se ofrece la posibilidad de crearlos.
+    Endpoint para insertar un nuevo registro en la tabla bls.
     """
     try:
         # Validar parámetros obligatorios
-        if not url or not mensaje or sucess is None:
-            raise HTTPException(status_code=400, detail="Los campos 'url', 'fecha', 'mensaje' y 'sucess' son obligatorios.")
-        
-        if not id_bl: id_bl = None #Asignar null en caso de no existir
-        if not id_html: id_html = None #Asignar null en caso de no existir
-        if not id_respuesta: id_respuesta = None #Asignar null en caso de no existir
-        
-        # Convertir fecha de string a timestamp
-        if fecha:
-            try:
-                fecha = datetime.strptime(fecha, "%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                raise HTTPException(
-                    status_code=400, detail="Formato de 'fecha' inválido. Use el formato YYYY-MM-DD HH:MM:SS."
-                )
-        else:
-            fecha = datetime.now()  # Usar fecha actual si no se proporciona
-        
-        # Insertar el registro en la tabla 'requests'
-        query_request = """
-            INSERT INTO requests (id_bl, url, fecha, mensaje, sucess, id_html, id_respuesta)
-            VALUES (:id_bl, :url, :fecha, :mensaje, :sucess, :id_html, :id_respuesta)
+        if not code or not id_naviera or not id_etapa or not proxima_revision or not id_status or not id_carga:
+            raise HTTPException(
+                status_code=400,
+                detail="Los campos 'code', 'id_naviera', 'id_etapa', 'proxima_revision', 'id_status' e 'id_carga' son obligatorios."
+            )
+
+        # Convertir 'fecha' a tipo datetime
+        try:
+            fecha = datetime.strptime(fecha, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Formato de 'fecha' inválido. Use el formato YYYY-MM-DD."
+            )
+
+        # Convertir 'proxima_revision' a tipo datetime
+        try:
+            proxima_revision = datetime.strptime(proxima_revision, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Formato de 'proxima_revision' inválido. Use el formato YYYY-MM-DD."
+            )
+
+        # Consulta SQL para insertar el registro en la tabla 'bls'
+        query_bls = """
+            INSERT INTO bls (
+                code, id_naviera, id_etapa, fecha, proxima_revision, id_status, id_carga,
+                nave, mercado, pol, pod, revisado_con_exito, manual_pendiente,
+                no_revisar, revisado_hoy, html_descargado
+            ) VALUES (
+                :code, :id_naviera, :id_etapa, :fecha, :proxima_revision, :id_status, :id_carga,
+                :nave, :mercado, :pol, :pod, :revisado_con_exito, :manual_pendiente,
+                :no_revisar, :revisado_hoy, :html_descargado
+            )
             RETURNING id;
         """
-        values_request = {
-            "id_bl": id_bl,
-            "url": url,
+
+        # Valores para la consulta
+        values_bls = {
+            "code": code,
+            "id_naviera": id_naviera,
+            "id_etapa": id_etapa,
             "fecha": fecha,
-            "mensaje": mensaje,
-            "sucess": sucess,
-            "id_html": id_html,
-            "id_respuesta": id_respuesta,
+            "proxima_revision": proxima_revision,
+            "id_status": id_status,
+            "id_carga": id_carga,
+            "nave": nave,
+            "mercado": mercado,
+            "pol": pol,
+            "pod": pod,
+            "revisado_con_exito": revisado_con_exito,
+            "manual_pendiente": manual_pendiente,
+            "no_revisar": no_revisar,
+            "revisado_hoy": revisado_hoy,
+            "html_descargado": html_descargado,
         }
-        result_request = await database.execute(query_request, values_request)
-        #id_request = result_request.scalar()
 
-        if not result_request:
-            raise HTTPException(status_code=500, detail="Error al insertar el registro en 'requests'.")
+        # Ejecutar la consulta
+        id_bls = await database.execute(query=query_bls, values=values_bls)
 
-        return {"message": "Request creado exitosamente", "id_request": result_request}
+        if not id_bls:
+            raise HTTPException(status_code=500, detail="Error al insertar en bls, no hay id.")
+
+        return {"message": "Registro creado exitosamente en la tabla 'bls'.", "id_bls": id_bls}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al insertar el request: {str(e)}")
-
-
-    
+        raise HTTPException(status_code=500, detail=f"Error al insertar el registro en 'bls': {str(e)}")
