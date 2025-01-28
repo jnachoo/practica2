@@ -140,6 +140,7 @@ async def actualizar_parcial_request(
     fields_requests = []
     fields_html = []
     fields_bls = []
+    fields_bls_requests = []
     fields_status = []
     fields_respuesta_requests = []
 
@@ -147,11 +148,24 @@ async def actualizar_parcial_request(
     values_respuesta_requests = {"id_request": id_request}
     values_status = {"id_request": id_request}
     values_bls = {"id_request": id_request}
+    values_bls_requests = {"id_request": id_request}
+
+    ayuda_descripcion_status = 0
+    ayuda_mensaje =0
+    ayuda_descripcion_respuesta = 0
 
     # Campos para la tabla `requests`
     if mensaje is not None:
+        #status = status.upper()
+        query_check_mensaje = "SELECT COUNT(*) FROM requests WHERE mensaje = :mensaje"
+        ayuda_mensaje = await database.fetch_val(query_check_mensaje, {"mensaje": mensaje})
+        print("mensaje",mensaje)
+        print("query:",ayuda_mensaje)
+        if ayuda_mensaje == 0 or ayuda_mensaje is None:
+            raise HTTPException(status_code=400, detail="El mensaje no existe en la tabla 'requests'.")
         fields_requests.append("mensaje = :mensaje")
         values_requests["mensaje"] = mensaje
+
     if fecha_request is not None:
         fecha_request = datetime.strptime(fecha_request, "%Y-%m-%d %H:%M:%S")
         fields_requests.append("fecha = :fecha_request")
@@ -164,8 +178,14 @@ async def actualizar_parcial_request(
 
     # Campos para la tabla `bls`
     if bl_code is not None:
-        fields_bls.append("code = :bl_code")
-        values_bls["bl_code"] = bl_code
+        bl_code = bl_code.upper()
+        query_check_bl_code = "SELECT id FROM bls WHERE code = :bl_code"
+        count_bl_code = await database.fetch_val(query_check_bl_code, {"bl_code": bl_code})
+        if count_bl_code == 0:
+            raise HTTPException(status_code=400, detail="El bl_code no existe en la tabla 'bls'.")
+        fields_bls_requests.append("id_bl = :id")
+        values_bls_requests["bl_code"] = bl_code
+
     if fecha_bl is not None:
         fecha_bl = datetime.strptime(fecha_bl, "%Y-%m-%d").date()
         fields_bls.append("fecha = :fecha_bl")
@@ -173,17 +193,28 @@ async def actualizar_parcial_request(
 
     # Campos para la tabla `respuesta_requests`
     if descripcion_respuesta is not None:
-        fields_respuesta_requests.append("descripcion = :descripcion_respuesta")
-        values_respuesta_requests["descripcion_respuesta"] = descripcion_respuesta
+        query_check_descripcion_respuesta = "SELECT id FROM respuesta_requests WHERE descripcion = :descripcion_respuesta"
+        ayuda_descripcion_respuesta = await database.fetch_val(query_check_descripcion_respuesta, {"descripcion_respuesta": descripcion_respuesta})
+        print("descripcion_respuesta",descripcion_respuesta)
+        print("query:",ayuda_descripcion_respuesta)
+        if ayuda_descripcion_respuesta == 0 or ayuda_descripcion_respuesta is None:
+            raise HTTPException(status_code=400, detail="La respuesta no existe en la tabla 'respuesta_requests'.")
+        fields_respuesta_requests.append("id_respuesta = :ayuda_descripcion_respuesta")
+        values_respuesta_requests["ayuda_descripcion_respuesta"] = ayuda_descripcion_respuesta
     
     # Campos para la tabla status_bl
     if descripcion_status is not None:
-        descripcion_status = unquote(descripcion_status)
-        fields_status.append("descripcion_status =:descripcion_status")
-        values_status["descripcion_status"] = descripcion_status
+        query_check_descripcion_status = "SELECT id FROM status_bl WHERE descripcion_status = :descripcion_status"
+        ayuda_descripcion_status = await database.fetch_val(query_check_descripcion_status, {"descripcion_status": descripcion_status})
+        print("descripcion_status",descripcion_status)
+        print("query:",ayuda_descripcion_status)
+        if ayuda_descripcion_status == 0 or ayuda_descripcion_status is None:
+            raise HTTPException(status_code=400, detail="El status no existe en la tabla 'bls'.")
+        fields_status.append("id_status = :ayuda_descripcion_status")
+        values_status["ayuda_descripcion_status"] = ayuda_descripcion_status
 
     # Validar que al menos un campo se proporcionó
-    if not (fields_requests or fields_html or fields_bls or fields_respuesta_requests or fields_status):
+    if not (fields_requests or fields_html or fields_bls or fields_respuesta_requests or fields_status or fields_bls_requests):
         raise HTTPException(status_code=400, detail="No se proporcionaron campos para actualizar")
 
     # Bandera para saber si algo fue actualizado
@@ -218,12 +249,26 @@ async def actualizar_parcial_request(
         print(f"Resultado del update bls: {resultado_bls}")
 
 
+    # Ejecutar la consulta para la tabla `bls` si hay campos
+    if fields_bls_requests:
+        # Asegúrate de que todas las claves necesarias están presentes
+        query_bls_r = f"""
+            UPDATE requests
+            SET {', '.join(fields_bls_requests)}
+            WHERE id = :id_request
+            RETURNING id;
+        """
+        resultado_bls = await database.execute(query=query_bls_r, values=values_bls_requests)
+        if resultado_bls:
+            filas_actualizadas += 1
+        print(f"Resultado del update bls: {resultado_bls}")
+
     # Ejecutar la consulta para la tabla `respuesta_requests` si hay campos
     if fields_respuesta_requests:
         query_respuesta_requests = f"""
-            UPDATE respuesta_requests
+            UPDATE requests
             SET {', '.join(fields_respuesta_requests)}
-            WHERE id = (SELECT id_respuesta FROM requests WHERE id = :id_request)
+            WHERE id = :id_request
             RETURNING id;
         """
         resultado_respuesta = await database.execute(query=query_respuesta_requests, values=values_respuesta_requests)
@@ -234,9 +279,9 @@ async def actualizar_parcial_request(
     # Ejecutar la consulta para la tabla `html_descargados` si hay campos
     if fields_status:
         query_status = f"""
-            UPDATE status_bl
+            UPDATE bls
             SET {', '.join(fields_status)}
-            WHERE id = (SELECT id_status FROM bls WHERE id = (SELECT id_bl FROM requests WHERE id = :id_request))
+            WHERE id = (SELECT id_bl from requests where id = :id_request)
             RETURNING id;
         """
         resultado_status = await database.execute(query=query_status, values=values_status)
@@ -263,7 +308,6 @@ async def insertar_request(
 ):
     """
     Endpoint para insertar un nuevo registro en la tabla requests.
-    Si no se especifica id_bl o id_html, se ofrece la posibilidad de crearlos.
     """
     try:
         # Validar parámetros obligatorios
