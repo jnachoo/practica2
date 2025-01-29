@@ -1,6 +1,17 @@
 from fastapi import APIRouter, HTTPException,Query
 from database import database
 from datetime import datetime
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse
+from decimal import Decimal
+import io
+import matplotlib.pyplot as plt
+import pandas as pd
+import os
+import httpx
+from io import BytesIO
 
 router = APIRouter()
 
@@ -289,73 +300,244 @@ async def validacion_requests_expo(
 #----------VALIDACIONES TENDENCIA-----------
 #-------------------------------------------
 
-@router.get("/tendencia_navieras/{nombre}")
-async def tendencia_navieras(nombre: str,
-    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 500
-    offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 
-    ):
+#-------------------------------------------
+#----------ENDPOINT PARA GRÁFICOS-----------
+#-------------------------------------------
+
+
+@router.get("/tendencia_por_naviera/{nombre}")
+async def tendencia_naviera(nombre: str, limit: int = Query(500, ge=1), offset: int = Query(0, ge=0)):
     query = """
-                SELECT 
-                    n.nombre,
-                    SUM(oc.c20 + oc.c40 * 2) AS teus
-                FROM output_containers oc
-                LEFT JOIN bls b ON b.code = oc.codigo 
-                LEFT JOIN navieras n ON n.id = b.id_naviera 
-                WHERE n.nombre ILIKE :nombre
-                GROUP BY
-                    n.nombre
-                HAVING SUM(oc.c20 + oc.c40 * 2) > 0
-                LIMIT :limit OFFSET :offset;
-                """
+        SELECT 
+            n.nombre,
+            DATE_PART('month', b.fecha) AS mes,
+            SUM(oc.c20 + oc.c40 * 2) AS teus
+        FROM output_containers oc
+        LEFT JOIN bls b ON b.code = oc.codigo 
+        LEFT JOIN navieras n ON n.id = b.id_naviera 
+        WHERE n.nombre ILIKE :nombre
+        GROUP BY n.nombre, DATE_PART('month', b.fecha)
+        HAVING SUM(oc.c20 + oc.c40 * 2) > 0
+        ORDER BY n.nombre, mes
+        LIMIT :limit OFFSET :offset;
+    """
     nombre = f"{nombre}%"
+
     try:
-        # Ejecutamos la consulta pasando el parámetro 'nombre'
+        # Ejecutar la consulta SQL
         result = await database.fetch_all(query=query, values={"nombre": nombre, "limit": limit, "offset": offset})
-        
-        # Verificamos si no hay resultados
+
+        # 🚨 Verificar si hay resultados
         if not result:
             raise HTTPException(status_code=404, detail="Containers no encontrados")
-            return {
-                    "message": "No existen datos que cumplan con la naviera seleccionada",
-                    "info":ver_info()
-                }
-        
-        return result
+
+        # 🔍 Convertir los resultados en un DataFrame
+        df = pd.DataFrame([dict(row) for row in result])
+
+        # 🚨 Verificar que las columnas necesarias existen
+        required_columns = {"nombre", "mes", "teus"}
+        if not required_columns.issubset(df.columns):
+            raise HTTPException(status_code=400, detail=f"Faltan columnas en la consulta SQL. Se encontraron: {df.columns}")
+
+        # 📊 Crear un gráfico de líneas con tendencia de TEUs por mes
+        plt.figure(figsize=(10, 6))
+
+        # Agrupar por naviera y graficar
+        for naviera, group in df.groupby("nombre"):
+            plt.plot(group["mes"], group["teus"], marker="o", label=naviera)
+
+        plt.xlabel("Mes")
+        plt.ylabel("TEUs")
+        plt.title("Tendencia de TEUs por Naviera")
+        plt.xticks(range(1, 13))  # Mostrar meses del 1 al 12
+        plt.legend(title="Naviera")
+        plt.grid(True)
+
+        # 📌 Guardar el gráfico en memoria (sin escribir en disco)
+        buffer = BytesIO()
+        plt.savefig(buffer, format="png")
+        plt.close()
+        buffer.seek(0)
+
+        # 📤 Enviar la imagen como respuesta
+        return StreamingResponse(buffer, media_type="image/png")
+
     except Exception as e:
-        return {"error": f"Error al ejecutar la validación de tendencia: {str(e)}"}
+        return {"error": f"Error al ejecutar la consulta: {str(e)}"}
+    
+@router.get("/tendencia_por_naviera_json/{nombre}")
+async def tendencia_por_naviera_json(nombre: str, limit: int = Query(500, ge=1), offset: int = Query(0, ge=0)):
+    query = """
+        SELECT 
+            n.nombre,
+            DATE_PART('month', b.fecha) AS mes,
+            SUM(oc.c20 + oc.c40 * 2) AS teus
+        FROM output_containers oc
+        LEFT JOIN bls b ON b.code = oc.codigo 
+        LEFT JOIN navieras n ON n.id = b.id_naviera 
+        WHERE n.nombre ILIKE :nombre
+        GROUP BY n.nombre, DATE_PART('month', b.fecha)
+        HAVING SUM(oc.c20 + oc.c40 * 2) > 0
+        ORDER BY n.nombre, mes
+        LIMIT :limit OFFSET :offset;
+    """
+    nombre = f"{nombre}%"
+
+    try:
+        # Ejecutar la consulta SQL
+        result = await database.fetch_all(query=query, values={"nombre": nombre, "limit": limit, "offset": offset})
+
+        # 🚨 Verificar si hay resultados
+        if not result:
+            raise HTTPException(status_code=404, detail="Containers no encontrados")
+
+        # 🔍 Convertir los resultados en un DataFrame
+        df = pd.DataFrame([dict(row) for row in result])
+
+        # 🚨 Verificar que las columnas necesarias existen
+        required_columns = {"nombre", "mes", "teus"}
+        if not required_columns.issubset(df.columns):
+            raise HTTPException(status_code=400, detail=f"Faltan columnas en la consulta SQL. Se encontraron: {df.columns}")
+
+        # 📊 Crear un diccionario con los datos para retornar como JSON
+        data = {
+            "naviera": nombre,
+            "tendencia": [
+                {"mes": mes, "teus": group["teus"].sum()}
+                for mes, group in df.groupby("mes")
+            ]
+        }
+
+        # 📤 Retornar los datos como JSON
+        return data
+
+    except Exception as e:
+        return {"error": f"Error al ejecutar la consulta: {str(e)}"}
 
 @router.get("/tendencia_etapa/{etapa}")
 async def tendencia_etapa(etapa: str,
     limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 500
     offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 
     ):
-    query = """
-            SELECT 
-                n.nombre,
-                b.id_etapa,
-                SUM(oc.c20 + oc.c40 * 2) AS teus
-            FROM output_containers oc
-            LEFT JOIN bls b ON b.code = oc.codigo
-            LEFT JOIN navieras n ON n.id = b.id_naviera
-            WHERE b.id_etapa = :etapa
-            GROUP BY
-                n.nombre,
-                b.id_etapa
-            HAVING SUM(oc.c20 + oc.c40 * 2) > 0
-            LIMIT :limit OFFSET :offset;
-            """
-    etapa = f"{etapa}%"
     try:
-        # Ejecutamos la consulta pasando el parámetro 'nombre'
-        result = await database.fetch_all(query=query, values={"etapa": etapa, "limit": limit, "offset": offset})
+        # Asegurarse de que etapa sea un número entero
+        etapa_int = int(etapa)
+
+        query = """
+                SELECT 
+                    n.nombre,
+                    b.id_etapa,
+                    SUM(oc.c20 + oc.c40 * 2) AS teus
+                FROM output_containers oc
+                LEFT JOIN bls b ON b.code = oc.codigo
+                LEFT JOIN navieras n ON n.id = b.id_naviera
+                WHERE b.id_etapa = :etapa
+                GROUP BY
+                    n.nombre,
+                    b.id_etapa
+                HAVING SUM(oc.c20 + oc.c40 * 2) > 0
+                LIMIT :limit OFFSET :offset;
+                """
         
-        # Verificamos si no hay resultados
+        # Ejecutar la consulta SQL pasando etapa como entero
+        result = await database.fetch_all(query=query, values={"etapa": etapa_int, "limit": limit, "offset": offset})
+
+        # 🚨 Verificar si hay resultados
         if not result:
-            return {"message": "No existen datos que cumplan con la etapa seleccionada"}
-        
-        return result
+            raise HTTPException(status_code=404, detail="No se encontraron resultados para la etapa")
+
+        # 🔍 Convertir los resultados en un DataFrame
+        df = pd.DataFrame([dict(row) for row in result])
+
+        # 🚨 Verificar que las columnas necesarias existen
+        required_columns = {"nombre", "id_etapa", "teus"}
+        if not required_columns.issubset(df.columns):
+            raise HTTPException(status_code=400, detail=f"Faltan columnas en la consulta SQL. Se encontraron: {df.columns}")
+
+        # 📊 Crear un gráfico de líneas para la tendencia de TEUs por naviera
+        plt.figure(figsize=(10, 6))
+
+        # Agrupar por naviera y graficar
+        for naviera, group in df.groupby("nombre"):
+            plt.plot(group["nombre"], group["teus"], marker="o", label=naviera)  # Cambiar id_etapa por nombre
+
+        plt.xlabel("Naviera")
+        plt.ylabel("TEUs")
+        plt.title(f"Tendencia de TEUs por Naviera en la etapa {etapa}")
+        plt.xticks(rotation=45)  # Rota los nombres de las navieras si es necesario para que no se solapen
+        plt.legend(title="Naviera")
+        plt.grid(True)
+
+        # 📌 Guardar el gráfico en memoria (sin escribir en disco)
+        buffer = BytesIO()
+        plt.savefig(buffer, format="png")
+        plt.close()
+        buffer.seek(0)
+
+        # 📤 Enviar la imagen como respuesta
+        return StreamingResponse(buffer, media_type="image/png")
+
+    except ValueError:
+        raise HTTPException(status_code=400, detail="El valor de 'etapa' debe ser un número entero.")
     except Exception as e:
-        return {"error": f"Error al ejecutar la validación de tendencia: {str(e)}"}
+        return {"error": f"Error al ejecutar la consulta: {str(e)}"}
+
+@router.get("/tendencia_etapa_json/{etapa}")
+async def tendencia_etapa_json(etapa: str,
+    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 500
+    offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 
+    ):
+    try:
+        # Asegurarse de que etapa sea un número entero
+        etapa_int = int(etapa)
+
+        query = """
+                SELECT 
+                    n.nombre,
+                    b.id_etapa,
+                    SUM(oc.c20 + oc.c40 * 2) AS teus
+                FROM output_containers oc
+                LEFT JOIN bls b ON b.code = oc.codigo
+                LEFT JOIN navieras n ON n.id = b.id_naviera
+                WHERE b.id_etapa = :etapa
+                GROUP BY
+                    n.nombre,
+                    b.id_etapa
+                HAVING SUM(oc.c20 + oc.c40 * 2) > 0
+                LIMIT :limit OFFSET :offset;
+                """
+        
+        # Ejecutar la consulta SQL pasando etapa como entero
+        result = await database.fetch_all(query=query, values={"etapa": etapa_int, "limit": limit, "offset": offset})
+
+        # 🚨 Verificar si hay resultados
+        if not result:
+            raise HTTPException(status_code=404, detail="No se encontraron resultados para la etapa")
+
+        # 🔍 Convertir los resultados en un DataFrame
+        df = pd.DataFrame([dict(row) for row in result])
+
+        # 🚨 Verificar que las columnas necesarias existen
+        required_columns = {"nombre", "id_etapa", "teus"}
+        if not required_columns.issubset(df.columns):
+            raise HTTPException(status_code=400, detail=f"Faltan columnas en la consulta SQL. Se encontraron: {df.columns}")
+
+        # 📊 Crear un diccionario con los datos para retornar como JSON
+        data = {
+            "etapa": etapa,
+            "navieras": [
+                {"nombre": naviera, "teus": group["teus"].sum()}
+                for naviera, group in df.groupby("nombre")
+            ]
+        }
+
+        # 📤 Retornar los datos como JSON
+        return data
+
+    except ValueError:
+        raise HTTPException(status_code=400, detail="El valor de 'etapa' debe ser un número entero.")
+    except Exception as e:
+        return {"error": f"Error al ejecutar la consulta: {str(e)}"}
 
 @router.get("/tendencia_contenedor_dryreefer/{contenido}")
 async def tendencia_contenedor_dryreefer(contenido: str,
@@ -378,18 +560,86 @@ async def tendencia_contenedor_dryreefer(contenido: str,
             LIMIT :limit OFFSET :offset;
                 """
     contenido = f"{contenido}%"
+    
     try:
-        # Ejecutamos la consulta pasando el parámetro 'nombre'
+        # Ejecutamos la consulta
         result = await database.fetch_all(query=query, values={"contenido": contenido, "limit": limit, "offset": offset})
         
         # Verificamos si no hay resultados
         if not result:
             return {"message": "No existen datos que cumplan con el tipo de contenido seleccionado"}
         
-        return result
+        # Convertimos los resultados a un formato JSON
+        data = [
+            {"naviera": row["nombre"], "contenido": row["dry/reefer"], "teus": row["teus"]}
+            for row in result
+        ]
+        
+        # 📊 Crear un gráfico de barras
+        plt.figure(figsize=(10, 6))
+        for naviera, group in pd.DataFrame(data).groupby("contenido"):
+            plt.bar(group["naviera"], group["teus"], label=naviera)
+        
+        plt.xlabel("Navieras")
+        plt.ylabel("TEUs")
+        plt.title("Tendencia de TEUs por tipo de contenedor (Dry/Reefer)")
+        plt.xticks(rotation=45)
+        plt.legend(title="Contenedor")
+        plt.grid(True)
+
+        # 📌 Guardar el gráfico en memoria (sin escribir en disco)
+        buffer = BytesIO()
+        plt.savefig(buffer, format="png")
+        plt.close()
+        buffer.seek(0)
+
+        # 📤 Enviar la imagen como respuesta
+        return StreamingResponse(buffer, media_type="image/png")
+    
     except Exception as e:
         return {"error": f"Error al ejecutar la validación de tendencia: {str(e)}"}
+
+@router.get("/tendencia_contenedor_dryreefer_json/{contenido}")
+async def tendencia_contenedor_dryreefer_json(contenido: str,
+    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 500
+    offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 
+    ):
+    query = """
+            SELECT 
+                n.nombre,
+                oc."dry/reefer",
+                SUM(oc.c20 + oc.c40 * 2) AS teus
+            FROM output_containers oc
+            JOIN bls b on b.code = oc.codigo
+            LEFT JOIN navieras n ON n.id = b.id_naviera
+            WHERE oc."dry/reefer" ILIKE :contenido
+            GROUP BY
+                n.nombre,
+                oc."dry/reefer"
+            HAVING SUM(oc.c20 + oc.c40 * 2) > 0
+            LIMIT :limit OFFSET :offset;
+                """
+    contenido = f"{contenido}%"
     
+    try:
+        # Ejecutamos la consulta
+        result = await database.fetch_all(query=query, values={"contenido": contenido, "limit": limit, "offset": offset})
+        
+        # Verificamos si no hay resultados
+        if not result:
+            return {"message": "No existen datos que cumplan con el tipo de contenido seleccionado"}
+        
+        # Convertimos los resultados a un formato JSON
+        data = [
+            {"naviera": row["nombre"], "contenido": row["dry/reefer"], "teus": row["teus"]}
+            for row in result
+        ]
+        
+        return {"tendencia": data}
+    
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de tendencia: {str(e)}"}
+
 @router.get("/tendencia_por_origen/{origen_locode}")
 async def tendencia_por_origen(origen_locode: str,
     limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 500
@@ -413,19 +663,88 @@ async def tendencia_por_origen(origen_locode: str,
             LIMIT :limit OFFSET :offset;
             """
     origen_locode = f"{origen_locode}%"
+    
     try:
-        # Ejecutamos la consulta pasando el parámetro 'nombre'
+        # Ejecutamos la consulta
         result = await database.fetch_all(query=query, values={"origen_locode": origen_locode, "limit": limit, "offset": offset})
         
         # Verificamos si no hay resultados
         if not result:
             return {"message": "No existen datos que cumplan con el origen seleccionado"}
         
-        return result
+        # Convertimos los resultados a un formato JSON
+        data = [
+            {"naviera": row["nombre"], "origen_locode": row["o"], "teus": row["teus"]}
+            for row in result
+        ]
+        
+        # 📊 Crear un gráfico de barras
+        plt.figure(figsize=(10, 6))
+        for naviera, group in pd.DataFrame(data).groupby("origen_locode"):
+            plt.bar(group["naviera"], group["teus"], label=naviera)
+        
+        plt.xlabel("Navieras")
+        plt.ylabel("TEUs")
+        plt.title("Tendencia de TEUs por Origen Locode")
+        plt.xticks(rotation=45)
+        plt.legend(title="Origen Locode")
+        plt.grid(True)
+
+        # 📌 Guardar el gráfico en memoria (sin escribir en disco)
+        buffer = BytesIO()
+        plt.savefig(buffer, format="png")
+        plt.close()
+        buffer.seek(0)
+
+        # 📤 Enviar la imagen como respuesta
+        return StreamingResponse(buffer, media_type="image/png")
+    
     except Exception as e:
         return {"error": f"Error al ejecutar la validación de tendencia: {str(e)}"}
+
+@router.get("/tendencia_por_origen_json/{origen_locode}")
+async def tendencia_por_origen_json(origen_locode: str,
+    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 500
+    offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 
+    ):
+    query = """
+            SELECT DISTINCT
+                n.nombre,
+                SUM(oc.c20 + oc.c40 * 2) AS teus,
+                p.locode AS o
+            FROM output_containers oc
+            LEFT JOIN bls b ON b.code = oc.codigo
+            LEFT JOIN navieras n ON n.id = b.id_naviera 
+            LEFT JOIN tracking t ON t.id = oc.id_origen 
+            LEFT JOIN paradas p  ON p.id = t.id_parada 
+            WHERE p.locode ILIKE :origen_locode
+            GROUP BY
+                n.nombre,
+                p.locode
+            HAVING SUM(oc.c20 + oc.c40 * 2) > 0
+            LIMIT :limit OFFSET :offset;
+            """
+    origen_locode = f"{origen_locode}%"
     
+    try:
+        # Ejecutamos la consulta
+        result = await database.fetch_all(query=query, values={"origen_locode": origen_locode, "limit": limit, "offset": offset})
         
+        # Verificamos si no hay resultados
+        if not result:
+            return {"message": "No existen datos que cumplan con el origen seleccionado"}
+        
+        # Convertimos los resultados a un formato JSON
+        data = [
+            {"naviera": row["nombre"], "origen_locode": row["o"], "teus": row["teus"]}
+            for row in result
+        ]
+        
+        return {"tendencia": data}
+    
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de tendencia: {str(e)}"}
+
 @router.get("/tendencia_por_destino/{destino_locode}")
 async def tendencia_por_destino(destino_locode: str,
     limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 500
@@ -449,17 +768,89 @@ async def tendencia_por_destino(destino_locode: str,
             LIMIT :limit OFFSET :offset;
             """
     destino_locode = f"{destino_locode}%"
+    
     try:
-        # Ejecutamos la consulta pasando el parámetro 'nombre'
+        # Ejecutamos la consulta
         result = await database.fetch_all(query=query, values={"destino_locode": destino_locode, "limit": limit, "offset": offset})
         
         # Verificamos si no hay resultados
         if not result:
             return {"message": "No existen datos que cumplan con el destino seleccionado"}
         
-        return result
+        # Convertimos los resultados a un formato JSON
+        data = [
+            {"naviera": row["nombre"], "destino_locode": row["o"], "teus": row["teus"]}
+            for row in result
+        ]
+        
+        # 📊 Crear un gráfico de barras
+        plt.figure(figsize=(10, 6))
+        for naviera, group in pd.DataFrame(data).groupby("destino_locode"):
+            plt.bar(group["naviera"], group["teus"], label=naviera)
+        
+        plt.xlabel("Navieras")
+        plt.ylabel("TEUs")
+        plt.title("Tendencia de TEUs por Destino Locode")
+        plt.xticks(rotation=45)
+        plt.legend(title="Destino Locode")
+        plt.grid(True)
+
+        # 📌 Guardar el gráfico en memoria (sin escribir en disco)
+        buffer = BytesIO()
+        plt.savefig(buffer, format="png")
+        plt.close()
+        buffer.seek(0)
+
+        # 📤 Enviar la imagen como respuesta
+        return StreamingResponse(buffer, media_type="image/png")
+    
     except Exception as e:
         return {"error": f"Error al ejecutar la validación de tendencia: {str(e)}"}
+
+
+@router.get("/tendencia_por_destino_json/{destino_locode}")
+async def tendencia_por_destino_json(destino_locode: str,
+    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 500
+    offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 
+    ):
+    query = """
+            SELECT DISTINCT
+                n.nombre,
+                SUM(oc.c20 + oc.c40 * 2) AS teus,
+                p.locode AS o
+            FROM output_containers oc
+            LEFT JOIN bls b ON b.code = oc.codigo
+            LEFT JOIN navieras n ON n.id = b.id_naviera 
+            LEFT JOIN tracking t ON t.id = oc.id_destino 
+            LEFT JOIN paradas p  ON p.id = t.id_parada 
+            WHERE p.locode ILIKE :destino_locode
+            GROUP BY
+                n.nombre,
+                p.locode
+            HAVING SUM(oc.c20 + oc.c40 * 2) > 0
+            LIMIT :limit OFFSET :offset;
+            """
+    destino_locode = f"{destino_locode}%"
+    
+    try:
+        # Ejecutamos la consulta
+        result = await database.fetch_all(query=query, values={"destino_locode": destino_locode, "limit": limit, "offset": offset})
+        
+        # Verificamos si no hay resultados
+        if not result:
+            return {"message": "No existen datos que cumplan con el destino seleccionado"}
+        
+        # Convertimos los resultados a un formato JSON
+        data = [
+            {"naviera": row["nombre"], "destino_locode": row["o"], "teus": row["teus"]}
+            for row in result
+        ]
+        
+        return {"tendencia": data}
+    
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de tendencia: {str(e)}"}
+
 
 #-------------------------------------------
 #----------SUPERFILTRO VALIDACIONES-----------
