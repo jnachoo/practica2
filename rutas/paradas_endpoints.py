@@ -166,15 +166,64 @@ async def ver_paradas_pais(
     except Exception as e:
         return {"error": f"Error al ejecutar la consulta paradas_filtro_pais: {str(e)}"}
     
+@router.patch("/paradas/{locode}")
+async def actualizar_parcial_parada(
+    locode: str,
+    pais: str = Query(None),
+    lugar: str = Query(None),
+):
+    # Construir las consultas dinámicamente
+    fields_paradas = []
+    values_paradas = {}
+
+    if not locode:
+        raise HTTPException(status_code=400, detail="Debe escribir un locode")
     
-@router.patch("/paradas/{id_tracking}")
+    if locode: values_paradas = {"locode": locode}
+
+    if pais is not None:
+        pais = pais.upper()   
+        fields_paradas.append("pais = :pais")
+        values_paradas["pais"] = pais
+
+    if lugar is not None:
+        lugar = lugar.upper()
+        fields_paradas.append("lugar = :lugar")
+        values_paradas["lugar"] = lugar
+
+    # Validar que al menos un campo se proporcionó
+    if not fields_paradas:
+        raise HTTPException(status_code=400, detail="No se proporcionaron campos para actualizar")
+
+    # Bandera para saber si algo fue actualizado
+    filas_actualizadas = 0
+
+    # Ejecutar la consulta para la tabla paradas si hay campos
+    if fields_paradas:  
+        query_paradas = f"""
+        UPDATE paradas
+        SET {', '.join(fields_paradas)}
+        WHERE locode = :locode
+        RETURNING id;
+        """           
+        # Ejecutar la consulta
+        resultado_p = await database.execute(query=query_paradas, values=values_paradas)
+        if resultado_p: filas_actualizadas += 1
+        print(f"Resultado del update paradas: {resultado_p}")
+
+    # Validar si se actualizaron filas
+    if filas_actualizadas == 0:
+        raise HTTPException(status_code=400, detail="No se pudo actualizar nada")
+
+    return {"message": "Actualización realizada con éxito"}
+
+
+@router.patch("/tracking/{id_tracking}")
 async def actualizar_parcial_parada(
     id_tracking: int,
     orden: int = Query(None),
     status: str = Query(None),
     locode: str = Query(None),
-    pais: str = Query(None),
-    lugar: str = Query(None),
     is_pol: bool = Query(None),
     is_pod: bool = Query(None),
 ):
@@ -184,13 +233,23 @@ async def actualizar_parcial_parada(
     fields_paradas = []
     values_paradas = {"id_tracking": id_tracking}
 
+
     # Campos para la tabla tracking
     if orden is not None:
+        if type(orden) != int:
+            raise HTTPException(status_code=400, detail="La orden debe ser un numero.")
+        if orden <0:
+            raise HTTPException(status_code=400, detail="La orden debe ser un numero POSITIVO.")
         fields_tracking.append("orden = :orden")
         values_tracking["orden"] = orden
+
     if status is not None:
+        status = status.upper()
+        if type(status) != str:
+            raise HTTPException(status_code=400, detail="El status debe ser una cadena de texto.")
         fields_tracking.append("status = :status")
         values_tracking["status"] = status
+    
     if is_pol is not None:
         fields_tracking.append("is_pol = :is_pol")
         values_tracking["is_pol"] = is_pol  
@@ -200,14 +259,13 @@ async def actualizar_parcial_parada(
 
     # Campos para la tabla paradas
     if locode is not None:
-        fields_paradas.append("locode = :locode")
-        values_paradas["locode"] = locode
-    if pais is not None:
-        fields_paradas.append("pais = :pais")
-        values_paradas["pais"] = pais
-    if lugar is not None:
-        fields_paradas.append("lugar = :lugar")
-        values_paradas["lugar"] = lugar
+        check_locode = "SELECT id FROM paradas where locode = :locode"
+        ayuda_locode = await database.fetch_val(check_locode, {"locode": locode})
+        if ayuda_locode == 0 or ayuda_locode is None:
+            raise HTTPException(status_code=400, detail="El locode no existe en la tabla 'paradas'.")
+        fields_paradas.append("id_parada = :ayuda_locode")
+        values_paradas["ayuda_locode"] = ayuda_locode
+
 
     # Validar que al menos un campo se proporcionó
     if not fields_tracking and not fields_paradas:
@@ -231,13 +289,9 @@ async def actualizar_parcial_parada(
     # Ejecutar la consulta para la tabla paradas si hay campos
     if fields_paradas:
         query_paradas = f"""
-            UPDATE paradas
+            UPDATE tracking
             SET {', '.join(fields_paradas)}
-            WHERE id = (
-                SELECT id_parada
-                FROM tracking
-                WHERE id = :id_tracking
-            )
+            WHERE id = :id_tracking
             RETURNING id;
         """
         # Ejecutar la consulta
@@ -250,3 +304,56 @@ async def actualizar_parcial_parada(
         raise HTTPException(status_code=400, detail="No se pudo actualizar nada")
 
     return {"message": "Actualización realizada con éxito"}
+
+@router.post("/paradas/")
+async def insertar_parada(
+    locode: str,
+    pais: str = Query(None),
+    lugar: str = Query(None),
+):
+    """
+    Endpoint para insertar un nuevo registro en la tabla paradas.
+    """
+    try:
+        # Validar parámetros obligatorios
+        if not locode :
+            raise HTTPException(
+                status_code=400,
+                detail="El campo 'locode' es obligatorio."
+            )
+        query_locode = "SELECT id from paradas where locode = :locode"
+        verificar_locode = await database.fetch_val(query_locode, {"locode":locode})
+        if verificar_locode !=0:
+            raise HTTPException(status_code=400, detail=f"El locode ya existe, id:{verificar_locode}")
+        
+        if pais is None:pais = "DESCONOCIDO"
+        if lugar is None:pais = "DESCONOCIDO"
+
+        # Consulta SQL para insertar el registro en la tabla 'bls'
+        query_paradas = """
+            INSERT INTO paradas (
+                locode, pais, lugar
+            ) VALUES (
+                :locode, :pais, :lugar
+            )
+            RETURNING id;
+        """
+
+        # Valores para la consulta
+        values_parada = {
+            "locode": locode,
+            "pais": pais,
+            "lugar": lugar,
+        }
+
+        # Ejecutar la consulta
+        id_parada = await database.execute(query=query_paradas, values=values_parada)
+
+        if not id_parada:
+            raise HTTPException(status_code=500, detail="Error al insertar en paradas, no hay id_parada.")
+
+        return {"message": "Registro creado exitosamente en la tabla 'paradas'.", "id_parada": id_parada}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al insertar el registro en 'paradas': {str(e)}")
+    

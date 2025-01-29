@@ -1,8 +1,14 @@
-from fastapi import APIRouter, HTTPException,Query
+from fastapi import APIRouter, HTTPException,Query, Depends
 from database import database
 from datetime import datetime
+from typing import List, Annotated, Optional
+
 
 router = APIRouter()
+
+#--------------------------------------------------
+#--------Funciones de ayuda------------------
+#--------------------------------------------------
 
 #-----------GET----------
 #-----------GET----------
@@ -14,24 +20,22 @@ router = APIRouter()
 async def super_filtro_bls(
     bl_code: str = Query(None),  # Código del BL
     etapa: str = Query(None),  # Nombre de la etapa
-    pol: str = Query(None),  # Puerto de origen
-    pod: str = Query(None),  # Puerto de destino
     naviera: str = Query(None),  # Nombre de la naviera
     status: str = Query(None),  # Descripción del estado
     fecha: str = Query(None, regex=r"^\d{4}-\d{2}-\d{2}$"),  # Fecha en formato YYYY-MM-DD
     fecha_proxima_revision: str = Query(None, regex=r"^\d{4}-\d{2}-\d{2}$"),  # Próxima revisión
     order_by: str = Query(None,
-        regex="^(b\\.code|e\\.nombre|b\\.pol|b\\.pod|n\\.nombre|sb\\.descripcion_status|b\\.fecha|b\\.proxima_revision|b\\.id)$"), # Campos válidos para ordenación
+        regex="^(b\\.code|e\\.nombre|n\\.nombre|sb\\.descripcion_status|b\\.fecha|b\\.proxima_revision|b\\.id)$"), # Campos válidos para ordenación
     order: str = Query("ASC", regex="^(ASC|DESC|asc|desc)$"),  # Dirección de ordenación
     limit: int = Query(500, ge=1),  # Número de resultados por página
     offset: int = Query(0, ge=0),  # Índice de inicio
 ):
     # Consulta base
     query = """
-        SELECT b.id, b.code AS bl_code, e.nombre AS etapa, b.pol, b.pod, n.nombre AS naviera, 
-               sb.descripcion_status AS status, 
-               TO_CHAR(b.fecha, 'YYYY-MM-DD') AS fecha, 
-               TO_CHAR(b.proxima_revision, 'YYYY-MM-DD') AS fecha_proxima_revision
+        SELECT b.id, b.code AS bl_code, e.nombre AS etapa, n.nombre AS naviera, 
+            sb.descripcion_status AS status, 
+            TO_CHAR(b.fecha, 'YYYY-MM-DD') AS fecha, 
+            TO_CHAR(b.proxima_revision, 'YYYY-MM-DD') AS fecha_proxima_revision
         FROM bls b
         JOIN etapa e ON e.id = b.id_etapa
         JOIN navieras n ON n.id = b.id_naviera
@@ -47,12 +51,6 @@ async def super_filtro_bls(
     if etapa:
         query += " AND e.nombre ILIKE :etapa"
         values["etapa"] = f"{etapa}%"
-    if pol:
-        query += " AND b.pol ILIKE :pol"
-        values["pol"] = f"{pol}%"
-    if pod:
-        query += " AND b.pod ILIKE :pod"
-        values["pod"] = f"{pod}%"
     if naviera:
         query += " AND n.nombre ILIKE :naviera"
         values["naviera"] = f"{naviera}%"
@@ -93,13 +91,15 @@ async def bls_fecha(
     ):
 
     query = """
-                select b.id,b.code as bl_code, e.nombre  as etapa, b.pol,b.pod, n.nombre  as naviera ,sb.descripcion_status as status, 
-                TO_CHAR(b.fecha, 'YYYY-MM-DD') as fecha ,TO_CHAR(b.proxima_revision, 'YYYY-MM-DD') as fecha_proxima_revision   
-                from bls b --875.294
-                join etapa e on e.id =b.id_etapa
-                join navieras n on n.id =b.id_naviera
-                join status_bl sb on b.id_status = sb.id
-                where 1=1
+            SELECT b.id, b.code AS bl_code, e.nombre AS etapa, n.nombre AS naviera, 
+                sb.descripcion_status AS status, 
+                TO_CHAR(b.fecha, 'YYYY-MM-DD') AS fecha, 
+                TO_CHAR(b.proxima_revision, 'YYYY-MM-DD') AS fecha_proxima_revision
+            FROM bls b
+            JOIN etapa e ON e.id = b.id_etapa
+            JOIN navieras n ON n.id = b.id_naviera
+            JOIN status_bl sb ON b.id_status = sb.id
+            WHERE 1=1
             """
     values = {}
     
@@ -148,7 +148,7 @@ async def ver_bls_id(
     offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
     ):
     query = """   
-                select b.id,b.code as bl_code, e.nombre  as etapa, b.pol,b.pod, n.nombre  as naviera ,sb.descripcion_status as status, 
+                select b.id,b.code as bl_code, e.nombre  as etapa, n.nombre  as naviera ,sb.descripcion_status as status, 
                 TO_CHAR(b.fecha, 'YYYY-MM-DD') as fecha ,TO_CHAR(b.proxima_revision, 'YYYY-MM-DD') as fecha_proxima_revision   
                 from bls b --875.294
                 join etapa e on e.id =b.id_etapa
@@ -174,7 +174,7 @@ async def ver_bls_id(
     offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
     ):
     query = """                
-                select b.id,b.code as bl_code, e.nombre  as etapa, b.pol,b.pod, n.nombre  as naviera ,sb.descripcion_status as status, 
+                select b.id,b.code as bl_code, e.nombre  as etapa, n.nombre  as naviera ,sb.descripcion_status as status, 
                 TO_CHAR(b.fecha, 'YYYY-MM-DD') as fecha ,TO_CHAR(b.proxima_revision, 'YYYY-MM-DD') as fecha_proxima_revision   
                 from bls b --875.294
                 join etapa e on e.id =b.id_etapa
@@ -201,7 +201,7 @@ async def ver_bls_id(
     offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
     ):
     query = """                
-                select b.id,b.code as bl_code, e.nombre  as etapa, b.pol,b.pod, n.nombre  as naviera ,sb.descripcion_status as status, 
+                select b.id,b.code as bl_code, e.nombre  as etapa, n.nombre  as naviera ,sb.descripcion_status as status, 
                 TO_CHAR(b.fecha, 'YYYY-MM-DD') as fecha ,TO_CHAR(b.proxima_revision, 'YYYY-MM-DD') as fecha_proxima_revision   
                 from bls b --875.294
                 join etapa e on e.id =b.id_etapa
@@ -225,14 +225,15 @@ async def ver_bls_id(
 @router.patch("/bls/{id_bls}")
 async def actualizar_parcial_bls(
     id_bl: int,
+    #naviera: Optional[str] = Query(None, description="Selecciona una naviera", enum=navieras_enum),
+    #naviera: Annotated[Optional[str], Depends(naviera_query)],
     bl_code: str = Query(None),
     etapa: str = Query(None),
-    pol: str = Query(None),
-    pod: str = Query(None),
     naviera: str = Query(None),
     status: str = Query(None),
     fecha: str = Query(None),
-    fecha_proxima_revision: str = Query(None)
+    fecha_proxima_revision: str = Query(None),
+    
 ):
     # Construir las consultas dinámicamente
     fields_bls = []
@@ -254,25 +255,6 @@ async def actualizar_parcial_bls(
     if bl_code is not None:
         fields_bls.append("code = :bl_code")
         values_bls["bl_code"] = bl_code
-    if pol is not None:
-        pol = pol.upper()
-        query_check_pol = "SELECT COUNT(*) FROM bls WHERE pol = :pol"
-        count_pol = await database.fetch_val(query_check_pol, {"pol": pol})
-        if count_pol == 0:
-            raise HTTPException(status_code=400, detail="El pol no existe en la tabla 'bls'.")
-        if pol == "null": pol = None
-        fields_bls.append("pol = :pol")
-        values_bls["pol"] = pol
-    
-    if pod is not None:
-        pod = pod.upper()
-        query_check_pod = "SELECT COUNT(*) FROM bls WHERE pod = :pod"
-        count_pod = await database.fetch_val(query_check_pod, {"pod": pod})
-        if count_pod == 0:
-            raise HTTPException(status_code=400, detail="El pod no existe en la tabla 'bls'.")
-        if pod == "null": pod = None
-        fields_bls.append("pod = :pod")
-        values_bls["pod"] = pod
 
     if fecha is not None:
         fecha = datetime.strptime(fecha, "%Y-%m-%d").date()
@@ -396,8 +378,6 @@ async def insertar_bls(
     id_carga: int,
     nave: str = Query(None),
     mercado: str = Query(None),
-    pol: str = Query(None),
-    pod: str = Query(None),
     revisado_con_exito: bool = Query(None),
     manual_pendiente: bool = Query(None),
     no_revisar: bool = Query(None),
@@ -437,11 +417,11 @@ async def insertar_bls(
         query_bls = """
             INSERT INTO bls (
                 code, id_naviera, id_etapa, fecha, proxima_revision, id_status, id_carga,
-                nave, mercado, pol, pod, revisado_con_exito, manual_pendiente,
+                nave, mercado, revisado_con_exito, manual_pendiente,
                 no_revisar, revisado_hoy, html_descargado
             ) VALUES (
                 :code, :id_naviera, :id_etapa, :fecha, :proxima_revision, :id_status, :id_carga,
-                :nave, :mercado, :pol, :pod, :revisado_con_exito, :manual_pendiente,
+                :nave, :mercado, :revisado_con_exito, :manual_pendiente,
                 :no_revisar, :revisado_hoy, :html_descargado
             )
             RETURNING id;
@@ -458,8 +438,6 @@ async def insertar_bls(
             "id_carga": id_carga,
             "nave": nave,
             "mercado": mercado,
-            "pol": pol,
-            "pod": pod,
             "revisado_con_exito": revisado_con_exito,
             "manual_pendiente": manual_pendiente,
             "no_revisar": no_revisar,
@@ -477,3 +455,8 @@ async def insertar_bls(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al insertar el registro en 'bls': {str(e)}")
+    
+
+
+
+

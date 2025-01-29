@@ -262,3 +262,58 @@ async def actualizar_parcial_container(
         raise HTTPException(status_code=400, detail="No se pudo actualizar nada")
 
     return {"message": "Actualización realizada con éxito"}
+
+@router.post("/containers/")
+async def insertar_container(
+    code: str,
+    size: str = Query(None),
+    type: str = Query(None),
+    contenido: str = Query(None),
+):
+    """
+    Endpoint para insertar un nuevo registro en la tabla paradas.
+    """
+    try:
+        # Validar parámetros obligatorios
+        if not code :
+            raise HTTPException(
+                status_code=400,
+                detail="El campo 'code' es obligatorio."
+            )
+        query_code = "SELECT id from paradas where code = :code"
+        verificar_code = await database.fetch_val(query_code, {"code":code})
+        if verificar_code !=0:
+            raise HTTPException(status_code=400, detail=f"El code ya existe, id:{verificar_locode}")
+        
+        if size is None: size = "DESCONOCIDO"
+        if type is None: type = "DESCONOCIDO"
+        if contenido is None: contenido = "DESCONOCIDO"
+
+        # Consulta SQL para insertar el registro en la tabla 'bls'
+        query_container = """
+            INSERT INTO containers (
+                code, size, type, contenido
+            ) VALUES (
+                :code, :size, :type, :contenido
+            )
+            RETURNING id;
+        """
+
+        # Valores para la consulta
+        values_container = {
+            "code": code,
+            "size": size,
+            "type": type,
+            "contenido":contenido
+        }
+
+        # Ejecutar la consulta
+        id_container = await database.execute(query=query_container, values=values_container)
+
+        if not id_container:
+            raise HTTPException(status_code=500, detail="Error al insertar en containers, no hay id_container.")
+
+        return {"message": "Registro creado exitosamente en la tabla 'paradas'.", "id_parada": id_container}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al insertar el registro en 'paradas': {str(e)}")
