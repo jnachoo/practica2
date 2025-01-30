@@ -16,10 +16,10 @@ class Item(BaseModel):
 async def super_filtro_containers( 
     codigo_container: str = Query(None),
     bl_code: str = Query(None),
-    size: int = Query(None), 
+    size: str = Query(None), 
     type: str = Query(None),  
     contenido: str = Query(None), 
-    order_by: str = Query(None, regex="^(c\\.code|b\\.code|c\\.size|c\\.type|c\\.contenido)$"), 
+    order_by: str = Query(None, regex="^(c\\.code|b\\.code|c\\.size|c\\.type|c\\.contenido|c\\.id)$"), 
     order: str = Query("ASC", regex="^(ASC|DESC|asc|desc)$"),  
     limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 500
     offset: int = Query(0, ge=0),  # Índice de inicio, por defecto 0
@@ -66,6 +66,7 @@ async def super_filtro_containers(
         if not result:
             raise HTTPException(status_code=404, detail="Containers no encontrados")
         return result
+    
     except Exception as e:
         return {"error": f"Error al ejecutar la consulta containers: {str(e)}"}
 
@@ -271,7 +272,7 @@ async def insertar_container(
     contenido: str = Query(None),
 ):
     """
-    Endpoint para insertar un nuevo registro en la tabla paradas.
+    Endpoint para insertar un nuevo registro en la tabla containers.
     """
     try:
         # Validar parámetros obligatorios
@@ -280,14 +281,19 @@ async def insertar_container(
                 status_code=400,
                 detail="El campo 'code' es obligatorio."
             )
-        query_code = "SELECT id from paradas where code = :code"
+        code = code.upper()
+        query_code = "SELECT id from containers where code = :code"
         verificar_code = await database.fetch_val(query_code, {"code":code})
-        if verificar_code !=0:
-            raise HTTPException(status_code=400, detail=f"El code ya existe, id:{verificar_locode}")
+        if verificar_code !=0 and verificar_code !=None:
+            raise HTTPException(status_code=400, detail=f"El code ya existe, id:{verificar_code}")
         
         if size is None: size = "DESCONOCIDO"
         if type is None: type = "DESCONOCIDO"
         if contenido is None: contenido = "DESCONOCIDO"
+
+        size = size.upper()
+        type = type.upper()
+        contenido = contenido.upper()
 
         # Consulta SQL para insertar el registro en la tabla 'bls'
         query_container = """
@@ -313,7 +319,7 @@ async def insertar_container(
         if not id_container:
             raise HTTPException(status_code=500, detail="Error al insertar en containers, no hay id_container.")
 
-        return {"message": "Registro creado exitosamente en la tabla 'paradas'.", "id_parada": id_container}
+        return {"message": "Registro creado exitosamente en la tabla 'containers'.", "id_container": id_container}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al insertar el registro en 'paradas': {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error al insertar el registro en 'containers': {str(e)}")

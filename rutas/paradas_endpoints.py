@@ -321,14 +321,19 @@ async def insertar_parada(
                 status_code=400,
                 detail="El campo 'locode' es obligatorio."
             )
+        locode = locode.upper()
         query_locode = "SELECT id from paradas where locode = :locode"
         verificar_locode = await database.fetch_val(query_locode, {"locode":locode})
-        if verificar_locode !=0:
+        if verificar_locode !=0 and verificar_locode != None:
             raise HTTPException(status_code=400, detail=f"El locode ya existe, id:{verificar_locode}")
         
         if pais is None:pais = "DESCONOCIDO"
         if lugar is None:pais = "DESCONOCIDO"
 
+        pais = pais.upper()
+        lugar = lugar.upper()
+
+        print("datos:",locode," ",pais," ",lugar)
         # Consulta SQL para insertar el registro en la tabla 'bls'
         query_paradas = """
             INSERT INTO paradas (
