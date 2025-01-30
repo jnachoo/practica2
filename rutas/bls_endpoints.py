@@ -82,11 +82,14 @@ async def super_filtro_bls(
     except Exception as e:
         return {"error": f"Error ejecutando la consulta bls: {str(e)}"}
 
+#------------------------------------------------------------
+#------------------ENDPOINTS DROPDOWN------------------------
+#------------------------------------------------------------
 
 @router.get("/bls/nombre_navieras")
 async def bls_nombre_navieras():
     query = "SELECT nombre FROM navieras order by id"
-    resultado = await database.fetch_val(query)
+    resultado = await database.fetch_all(query)
     if not resultado:
         raise HTTPException(status_code=404, detail="Navieras no retornadas")
     return resultado
@@ -94,7 +97,7 @@ async def bls_nombre_navieras():
 @router.get("/bls/nombre_etapa")
 async def bls_nombre_etapa():
     query = "SELECT nombre FROM etapa order by id"
-    resultado = await database.fetch_val(query)
+    resultado = await database.fetch_all(query)
     if not resultado:
         raise HTTPException(status_code=404, detail="Etapas no retornadas")
     return resultado
@@ -102,10 +105,11 @@ async def bls_nombre_etapa():
 @router.get("/bls/descripcion_status_bl")
 async def bls_nombre_status_bl():
     query = "SELECT descripcion_status FROM status_bl order by id;"
-    resultado = await database.fetch_val(query)
+    resultado = await database.fetch_all(query)
     if not resultado:
         raise HTTPException(status_code=404, detail="Status no retornadas")
     return resultado
+
 
 @router.get("/bls/fecha/{fecha}")
 async def bls_fecha(
