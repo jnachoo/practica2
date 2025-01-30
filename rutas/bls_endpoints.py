@@ -83,6 +83,30 @@ async def super_filtro_bls(
         return {"error": f"Error ejecutando la consulta bls: {str(e)}"}
 
 
+@router.get("/bls/nombre_navieras")
+async def bls_nombre_navieras():
+    query = "SELECT nombre FROM navieras order by id"
+    resultado = await database.fetch_val(query)
+    if not resultado:
+        raise HTTPException(status_code=404, detail="Navieras no retornadas")
+    return resultado
+
+@router.get("/bls/nombre_etapa")
+async def bls_nombre_etapa():
+    query = "SELECT nombre FROM etapa order by id"
+    resultado = await database.fetch_val(query)
+    if not resultado:
+        raise HTTPException(status_code=404, detail="Etapas no retornadas")
+    return resultado
+
+@router.get("/bls/descripcion_status_bl")
+async def bls_nombre_status_bl():
+    query = "SELECT descripcion_status FROM status_bl order by id;"
+    resultado = await database.fetch_val(query)
+    if not resultado:
+        raise HTTPException(status_code=404, detail="Status no retornadas")
+    return resultado
+
 @router.get("/bls/fecha/{fecha}")
 async def bls_fecha(
     fecha: str,
@@ -370,8 +394,8 @@ async def actualizar_parcial_bls(
 @router.post("/bls/")
 async def insertar_bls(
     code: str,
-    id_naviera: int,
-    id_etapa: int,
+    naviera: str,
+    etapa: str,
     fecha: str,
     proxima_revision: str,
     id_status: int,
@@ -387,6 +411,20 @@ async def insertar_bls(
     """
     Endpoint para insertar un nuevo registro en la tabla bls.
     """
+    naviera = naviera.upper()
+    query = "SELECT id FROM navieras WHERE nombre ILIKE :naviera"
+    naviera = f"{naviera}%"
+    id_naviera = await database.fetch_val(query, {"naviera":naviera})
+    if id_naviera == None:
+        raise HTTPException(status_code=404, detail="Id naviera no retornado")
+    
+    etapa = etapa.upper()
+    query = "SELECT id FROM etapa WHERE nombre ILIKE :etapa"
+    etapa = f"{etapa}%"
+    id_etapa = await database.fetch_val(query, {"etapa":etapa})
+    if id_etapa == None:
+        raise HTTPException(status_code=404, detail="Id etapa no retornado") 
+
     try:
         # Validar parámetros obligatorios
         if not code or not id_naviera or not id_etapa or not proxima_revision or not id_status or not id_carga:

@@ -180,11 +180,12 @@ async def actualizar_parcial_request(
     if bl_code is not None:
         bl_code = bl_code.upper()
         query_check_bl_code = "SELECT id FROM bls WHERE code = :bl_code"
-        count_bl_code = await database.fetch_val(query_check_bl_code, {"bl_code": bl_code})
-        if count_bl_code == 0:
+        id_bl_code = await database.fetch_val(query_check_bl_code, {"bl_code": bl_code})
+        print(f"bl_code:{bl_code} y query: {id_bl_code}")
+        if id_bl_code == 0 or id_bl_code == None:
             raise HTTPException(status_code=400, detail="El bl_code no existe en la tabla 'bls'.")
-        fields_bls_requests.append("id_bl = :id")
-        values_bls_requests["bl_code"] = bl_code
+        fields_bls_requests.append("id_bl = :id_bl_code")
+        values_bls_requests["id_bl_code"] = id_bl_code
 
     if fecha_bl is not None:
         fecha_bl = datetime.strptime(fecha_bl, "%Y-%m-%d").date()
