@@ -402,8 +402,6 @@ async def insertar_bls(
     etapa: str,
     fecha: str,
     proxima_revision: str,
-    id_status: int,
-    id_carga: int,
     nave: str = Query(None),
     mercado: str = Query(None),
     revisado_con_exito: bool = Query(None),
@@ -431,10 +429,10 @@ async def insertar_bls(
 
     try:
         # Validar parámetros obligatorios
-        if not code or not id_naviera or not id_etapa or not proxima_revision or not id_status or not id_carga:
+        if not code or not id_naviera or not id_etapa or not proxima_revision or not fecha:
             raise HTTPException(
                 status_code=400,
-                detail="Los campos 'code', 'id_naviera', 'id_etapa', 'proxima_revision', 'id_status' e 'id_carga' son obligatorios."
+                detail="Los campos 'code', 'id_naviera', 'id_etapa', 'proxima_revision', 'fecha' son obligatorios."
             )
 
         # Convertir 'fecha' a tipo datetime
@@ -458,11 +456,11 @@ async def insertar_bls(
         # Consulta SQL para insertar el registro en la tabla 'bls'
         query_bls = """
             INSERT INTO bls (
-                code, id_naviera, id_etapa, fecha, proxima_revision, id_status, id_carga,
+                code, id_naviera, id_etapa, fecha, proxima_revision,
                 nave, mercado, revisado_con_exito, manual_pendiente,
                 no_revisar, revisado_hoy, html_descargado
             ) VALUES (
-                :code, :id_naviera, :id_etapa, :fecha, :proxima_revision, :id_status, :id_carga,
+                :code, :id_naviera, :id_etapa, :fecha, :proxima_revision,
                 :nave, :mercado, :revisado_con_exito, :manual_pendiente,
                 :no_revisar, :revisado_hoy, :html_descargado
             )
@@ -476,8 +474,6 @@ async def insertar_bls(
             "id_etapa": id_etapa,
             "fecha": fecha,
             "proxima_revision": proxima_revision,
-            "id_status": id_status,
-            "id_carga": id_carga,
             "nave": nave,
             "mercado": mercado,
             "revisado_con_exito": revisado_con_exito,
