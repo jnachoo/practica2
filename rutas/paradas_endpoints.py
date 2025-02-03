@@ -362,3 +362,83 @@ async def insertar_parada(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al insertar el registro en 'paradas': {str(e)}")
     
+@router.post("/tracking/")
+async def insertar_tracking(
+    bl_code: str,
+    locode: str,
+    fecha: str,
+    orden: int = Query(None),
+    terminal: str = Query(None),
+    status: str = Query(None),
+    is_pol: bool = Query(None),
+    is_pod: bool = Query(None),
+):
+    """
+    Endpoint para insertar un nuevo registro en la tabla tracking.
+    """
+    try:
+        # Validar parámetros obligatorios
+        if not locode or not bl_code or not fecha:
+            raise HTTPException(
+                status_code=400,
+                detail="Los campos 'locode, fecha y bl_code' son obligatorios."
+            )
+        locode = locode.upper()
+        query_locode = "SELECT id from paradas where locode = :locode"
+        verificar_locode = await database.fetch_val(query_locode, {"locode":locode})
+        if verificar_locode == None:
+            raise HTTPException(status_code=400, detail=f"El locode no existe")
+        
+        bl_code = bl_code.upper()
+        query_bl_code = "SELECT id from bls where code = :bl_code"
+        verificar_bl_code = await database.fetch_val(query_bl_code, {"bl_code":bl_code})
+        if verificar_bl_code == None:
+            raise HTTPException(status_code=400, detail=f"El bl_code no existe")
+        
+        if orden is None:orden = 0
+        if is_pod is None:is_pod = False
+        if is_pol is None:is_pol = False
+        if status is None:status = "DESCONOCIDO"
+        if terminal is None:terminal = "DESCONOCIDO"
+
+        # Convertir 'fecha' a tipo datetime
+        try:
+            fecha = datetime.strptime(fecha, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Formato de 'fecha' inválido. Use el formato YYYY-MM-DD."
+            )
+
+        # Consulta SQL para insertar el registro en la tabla 'bls'
+        query_tracking = """
+            INSERT INTO tracking (
+                id_bl, fecha, status, orden, 
+                id_parada,terminal, is_pol,is_pod
+            ) VALUES (
+                :verificar_bl_code, :fecha, :status, :orden,
+                :verificar_locode, :terminal, :is_pol, :is_pod
+            )
+            RETURNING id;
+        """
+        
+
+    # Ejecutar la consulta
+        id_tracking = await database.fetch_val(query_tracking, {
+            "verificar_bl_code": verificar_bl_code,
+            "fecha": fecha,
+            "status": status,
+            "orden": orden,
+            "verificar_locode": verificar_locode,
+            "terminal": terminal,
+            "is_pol": is_pol,
+            "is_pod": is_pod
+        })
+
+        if not id_tracking:
+            raise HTTPException(status_code=500, detail="Error al insertar en tracking.")
+
+        return {"message": "Registro creado exitosamente en la tabla 'tracking'.", "id_tracking": id_tracking}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al insertar el registro en 'tracking': {str(e)}")

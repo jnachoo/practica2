@@ -6,9 +6,6 @@ from typing import List, Annotated, Optional
 
 router = APIRouter()
 
-#--------------------------------------------------
-#--------Funciones de ayuda------------------
-#--------------------------------------------------
 
 #-----------GET----------
 #-----------GET----------
@@ -109,6 +106,7 @@ async def bls_nombre_status_bl():
     if not resultado:
         raise HTTPException(status_code=404, detail="Status no retornadas")
     return resultado
+
 
 
 @router.get("/bls/fecha/{fecha}")
@@ -457,11 +455,11 @@ async def insertar_bls(
         query_bls = """
             INSERT INTO bls (
                 code, id_naviera, id_etapa, fecha, proxima_revision,
-                nave, mercado, revisado_con_exito, manual_pendiente,
+                nave,id_status,id_carga, mercado, revisado_con_exito, manual_pendiente,
                 no_revisar, revisado_hoy, html_descargado
             ) VALUES (
                 :code, :id_naviera, :id_etapa, :fecha, :proxima_revision,
-                :nave, :mercado, :revisado_con_exito, :manual_pendiente,
+                :nave,18,211, :mercado, :revisado_con_exito, :manual_pendiente,
                 :no_revisar, :revisado_hoy, :html_descargado
             )
             RETURNING id;
