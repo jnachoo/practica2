@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException,Query, Depends
 from database import database
 from datetime import datetime
 from typing import List, Annotated, Optional
+from autenticacion import check_rol,get_current_user
+from models import User
 
 
 router = APIRouter()
@@ -259,8 +261,11 @@ async def actualizar_parcial_bls(
     status: str = Query(None),
     fecha: str = Query(None),
     fecha_proxima_revision: str = Query(None),
-    
+    current_user: User = Depends(get_current_user)
 ):
+    # Verificar si el rol del usuario registrado puede acceder a la función
+    check_rol(current_user, [1,2])
+
     # Construir las consultas dinámicamente
     fields_bls = []
     fields_etapa = []
@@ -407,10 +412,15 @@ async def insertar_bls(
     no_revisar: bool = Query(None),
     revisado_hoy: bool = Query(None),
     html_descargado: bool = Query(None),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Endpoint para insertar un nuevo registro en la tabla bls.
     """
+
+    # Verificar si el rol del usuario registrado puede acceder a la función
+    check_rol(current_user, 1)
+
     naviera = naviera.upper()
     query = "SELECT id FROM navieras WHERE nombre ILIKE :naviera"
     naviera = f"{naviera}%"

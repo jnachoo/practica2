@@ -83,6 +83,43 @@ async def super_filtro_paradas(
     except Exception as e:
         return {"error": f"Error al ejecutar la consulta: {str(e)}"}
 
+
+#------------------------------------------------------------
+#------------------ENDPOINTS DROPDOWN------------------------
+#------------------------------------------------------------
+
+@router.get("/paradas/locode")
+async def paradas_locode():
+    query = "SELECT locode FROM paradas order by locode"
+    resultado = await database.fetch_all(query)
+    if not resultado:
+        raise HTTPException(status_code=404, detail="Locode no retornados")
+    return resultado
+
+@router.get("/paradas/pais")
+async def paradas_pais():
+    query = "SELECT distinct pais FROM paradas order by pais"
+    resultado = await database.fetch_all(query)
+    if not resultado:
+        raise HTTPException(status_code=404, detail="Paises no retornados")
+    return resultado
+
+@router.get("/paradas/lugar")
+async def paradas_lugar():
+    query = "SELECT distinct lugar FROM paradas order by lugar"
+    resultado = await database.fetch_all(query)
+    if not resultado:
+        raise HTTPException(status_code=404, detail="Lugares no retornados")
+    return resultado
+
+@router.get("/paradas/terminal")
+async def paradas_terminal():
+    query = "SELECT distinct terminal FROM tracking order by terminal"
+    resultado = await database.fetch_all(query)
+    if not resultado:
+        raise HTTPException(status_code=404, detail="Terminales no retornados")
+    return resultado
+
 @router.get("/paradas/bl_code/{bl_code}")
 async def ver_paradas(
     bl_code: str,

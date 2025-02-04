@@ -1,10 +1,13 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer
 from database import database
-from rutas import bls_endpoints, containers_endpoints, requests_endpoints, paradas_endpoints,validaciones_endpoints
+#from rutas.bls_endpoints import cargar_navieras 
+from rutas import bls_endpoints, containers_endpoints, requests_endpoints, paradas_endpoints,validaciones_endpoints,autenticacion
 
 app = FastAPI()
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 #origins = [
 #    "http://localhost:3000",  #  URL del front-end
 #    "http://192.168.x.x:3000",  # IP de la maquina del front
@@ -35,6 +38,7 @@ app.include_router(containers_endpoints.router)
 app.include_router(requests_endpoints.router)
 app.include_router(paradas_endpoints.router)
 app.include_router(validaciones_endpoints.router)
+app.include_router(autenticacion.router)
 
 @app.get("/")
 def leer_raiz():
