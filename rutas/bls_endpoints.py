@@ -2,11 +2,24 @@ from fastapi import APIRouter, HTTPException,Query, Depends
 from database import database
 from datetime import datetime
 from typing import List, Annotated, Optional
-from autenticacion import check_rol,get_current_user
+from rutas.autenticacion import check_rol,get_current_user
 from models import User
+import requests
 
 
 router = APIRouter()
+
+
+@router.get("/prueba/")
+async def prueba():
+    # pip install requests
+    url = "https://httpbin.io/anything"
+    proxy = "http://fe625ce84f8d2e2d04a8ec5177710814141fdac8:@api.zenrows.com:8001"
+    proxies = {"http": proxy, "https": proxy}
+    response = requests.get(url, proxies=proxies, verify=False)
+    print(response.text)
+
+    return response.text
 
 
 #-----------GET----------
@@ -419,7 +432,7 @@ async def insertar_bls(
     """
 
     # Verificar si el rol del usuario registrado puede acceder a la función
-    check_rol(current_user, 1)
+    check_rol(current_user, [1])
 
     naviera = naviera.upper()
     query = "SELECT id FROM navieras WHERE nombre ILIKE :naviera"

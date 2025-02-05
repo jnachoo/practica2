@@ -89,6 +89,16 @@ async def login(request: OAuth2PasswordRequestForm = Depends(), db: Session = De
 
 # Modelo de entrada con validaciones
 class UserCreate(BaseModel):
+
+    """
+    El frontend debe enviar:
+    {
+      "nombre": "Juan Pérez",
+      "nombre_usuario": "juan123",
+      "clave": "PassSegura123",
+      "rol": 1
+    }
+    """
     nombre :str = Field(...,min_length=3,max_length=100)
     nombre_usuario: str = Field(..., min_length=3, max_length=50)
     clave: str = Field(..., min_length=8, description="Debe tener al menos 8 caracteres")
@@ -122,3 +132,22 @@ async def registrar_usuario(
 
 
 
+class UserRead(BaseModel):
+    id: int
+    nombre: str
+    nombre_usuario: str
+    id_rol: int
+
+@router.get("/users", response_model=List[UserRead])
+async def get_all_users(
+    db: Session = Depends(get_bd),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Retorna todos los usuarios de la base de datos.
+    Opcional: Verificar si solo Admin puede verlos => check_rol(current_user, [1])
+    """
+    # Si deseas restringir a solo admin:
+    check_rol(current_user, [1])
+    users = db.query(User).all()
+    return users
