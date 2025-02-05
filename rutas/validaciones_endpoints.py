@@ -13,6 +13,7 @@ import os
 import httpx
 from io import BytesIO
 
+# Crear el APIRouter
 router = APIRouter()
 
 #---------------------------------
@@ -304,7 +305,6 @@ async def validacion_requests_expo(
 #----------ENDPOINT PARA GRÁFICOS-----------
 #-------------------------------------------
 
-
 @router.get("/tendencia_por_naviera/{nombre}")
 async def tendencia_naviera(nombre: str, limit: int = Query(500, ge=1), offset: int = Query(0, ge=0)):
     query = """
@@ -331,13 +331,36 @@ async def tendencia_naviera(nombre: str, limit: int = Query(500, ge=1), offset: 
         if not result:
             raise HTTPException(status_code=404, detail="Containers no encontrados")
 
+        # Convertir el async_generator en lista
+        result = [dict(row) for row in result]  # Ahora result es una lista de diccionarios
+
         # 🔍 Convertir los resultados en un DataFrame
-        df = pd.DataFrame([dict(row) for row in result])
+        df = pd.DataFrame(result)
 
         # 🚨 Verificar que las columnas necesarias existen
         required_columns = {"nombre", "mes", "teus"}
         if not required_columns.issubset(df.columns):
             raise HTTPException(status_code=400, detail=f"Faltan columnas en la consulta SQL. Se encontraron: {df.columns}")
+
+        # 📊 Comparar con el mes anterior y generar alerta si el cambio es mayor a 5000 TEUs
+        df["mes_anterior"] = df.groupby("nombre")["mes"].shift(1)
+        df["teus_anterior"] = df.groupby("nombre")["teus"].shift(1)
+        df["cambio_teus"] = df["teus"] - df["teus_anterior"]
+
+        alertas = []
+        for _, row in df.iterrows():
+            if pd.notna(row["cambio_teus"]):
+                if abs(row["cambio_teus"]) > 5000:
+                    if row["cambio_teus"] > 0:
+                        alertas.append(f"Alerta: Naviera {row['nombre']} tuvo un aumento de {row['cambio_teus']} TEUs en el mes {int(row['mes'])} en comparación con el mes anterior.")
+                    else:
+                        alertas.append(f"Alerta: Naviera {row['nombre']} tuvo una disminución de {abs(row['cambio_teus'])} TEUs en el mes {int(row['mes'])} en comparación con el mes anterior.")
+
+        # 🚨 Si hay alertas, las incluimos en la respuesta
+        if alertas:
+            alertas_texto = "\n".join(alertas)
+        else:
+            alertas_texto = "No se detectaron cambios significativos en los TEUs."
 
         # 📊 Crear un gráfico de líneas con tendencia de TEUs por mes
         plt.figure(figsize=(10, 6))
@@ -356,7 +379,6 @@ async def tendencia_naviera(nombre: str, limit: int = Query(500, ge=1), offset: 
         # 📌 Guardar el gráfico en memoria (sin escribir en disco)
         buffer = BytesIO()
         plt.savefig(buffer, format="png")
-        plt.close()
         buffer.seek(0)
 
         # 📤 Enviar la imagen como respuesta
@@ -364,7 +386,7 @@ async def tendencia_naviera(nombre: str, limit: int = Query(500, ge=1), offset: 
 
     except Exception as e:
         return {"error": f"Error al ejecutar la consulta: {str(e)}"}
-    
+
 @router.get("/tendencia_por_naviera_json/{nombre}")
 async def tendencia_por_naviera_json(nombre: str, limit: int = Query(500, ge=1), offset: int = Query(0, ge=0)):
     query = """
@@ -891,9 +913,9 @@ async def superfiltro_validaciones(
     if resultado_locode_nulo:
         x += 1
         print("Entro: ",x)
-        validaciones["locode_nulo"] = "si"
+        validaciones["¿Este bl tiene el parámetro locode de tipo nulo?"] = "si"
     else :
-        validaciones["locode_nulo"] = "no" 
+        validaciones["¿Este bl tiene el parámetro locode de tipo nulo?"] = "no" 
     
     query_cruce_contenedores = """
                                   SELECT DISTINCT ON (c.size)
@@ -928,9 +950,9 @@ async def superfiltro_validaciones(
     if resultado_cruce_contenedores:
         x += 1
         print("Entro: ",x)
-        validaciones["cruce_contenedores"] = "si"
+        validaciones["¿Este bl tiene el tipo de contenedor en el diccionario de contenedores?"] = "si"
     else :
-        validaciones["cruce_contenedores"] = "no"
+        validaciones["¿Este bl tiene el tipo de contenedor en el diccionario de contenedores?"] = "no"
 
     query_container_repetido = """
                                     SELECT 
@@ -966,9 +988,9 @@ async def superfiltro_validaciones(
     if resultado_container_repetido:
             x += 1
             print("Entro: ",x)
-            validaciones["container_repetido"] = "si"
+            validaciones["¿Este bl posee más de un container con la misma fecha y nave que lo transporta?"] = "si"
     else :
-            validaciones["container_repetido"] = "no"
+            validaciones["¿Este bl posee más de un container con la misma fecha y nave que lo transporta?"] = "no"
 
     query_paradas_pol_y_pod = """
                             SELECT 
@@ -999,9 +1021,9 @@ async def superfiltro_validaciones(
     if resultado_paradas_pol_y_pod:
             x += 1
             print("Entro: ",x)
-            validaciones["paradas_pol_y_pod"] = "si"
+            validaciones["¿En este bl la parada pol y pod son del tipo verdadero?"] = "si"
     else :
-            validaciones["paradas_pol_y_pod"] = "no"
+            validaciones["¿En este bl la parada pol y pod son del tipo verdadero?"] = "no"
 
     query_paradas_con_validacion= """
                                 SELECT DISTINCT
@@ -1070,10 +1092,11 @@ async def superfiltro_validaciones(
     if resultado_paradas_con_validacion:
             x += 1
             print("Entro: ",x)
-            validaciones["paradas_con_validacion"] = "si"
+            validaciones["¿Este BL contiene la parada de orden mayor y POD como Chile?"] = "si"
     else :
-            validaciones["paradas_con_validacion"] = "no"
+            validaciones["¿Este BL contiene la parada de orden mayor y POD como Chile?"] = "no"
 
+    #Verifica que si la etapa = 1, entonces el destino y el POD no puede ser CL.
     
     query_obtener_paradas_con_orden_repetida = """
                             SELECT 
@@ -1108,9 +1131,9 @@ async def superfiltro_validaciones(
     if resultado_obtener_paradas_con_orden_repetida:
             x += 1
             print("Entro: ",x)
-            validaciones["paradas_con_orden_repetida"] = "si"
+            validaciones["¿Este bl contiene paradas con el mismo número de orden?"] = "si"
     else :
-            validaciones["paradas_con_orden_repetida"] = "no"
+            validaciones["¿Este bl contiene paradas con el mismo número de orden?"] = "no"
             
     query_verificar_registros_etapa1_pais_distinto_cl = """
                                                 SELECT DISTINCT 
@@ -1149,9 +1172,9 @@ async def superfiltro_validaciones(
     if resultado_verificar_registros_etapa1_pais_distinto_cl:
             x += 1
             print("Entro: ",x)
-            validaciones["registros_etapa1_pais_distinto_cl"] = "si"
+            validaciones["¿Este bl contiene a Chile como su parada de origen (POD)?"] = "si"
     else :
-            validaciones["registros_etapa1_pais_distinto_cl"] = "no"
+            validaciones["¿Este bl contiene a Chile como su parada de origen (POD)?"] = "no"
 
     query_verificar_registros_etapa2_pais_distinto_cl = """
                                                         SELECT DISTINCT 
@@ -1190,9 +1213,9 @@ async def superfiltro_validaciones(
     if resultado_verificar_registros_etapa2_pais_distinto_cl:
             x += 1
             print("Entro: ",x)
-            validaciones["registros_etapa2_pais_distinto_cl"] = "si"
+            validaciones["¿Este bl contiene a Chile como su parada de destino (POL)?"] = "si"
     else :
-            validaciones["registros_etapa2_pais_distinto_cl"] = "no" 
+            validaciones["¿Este bl contiene a Chile como su parada de destino (POL)?"] = "no" 
 
     query_validacion_bls_expo = """
                                 SELECT 
@@ -1236,9 +1259,9 @@ async def superfiltro_validaciones(
     if resultado_validacion_bls_expo:
             x += 1
             print("Entro: ",x)
-            validaciones["validacion_bls_expo"] = "si"
+            validaciones["¿Este bl NO contiene a Chile, Argentina o Bolivia como su parada de origen (orden = 1)?"] = "si"
     else :
-            validaciones["validacion_bls_expo"] = "no" 
+            validaciones["¿Este bl NO contiene a Chile, Argentina o Bolivia como su parada de origen (orden = 1)?"] = "no" 
 
     query_validacion_bls_impo = """
                                 SELECT 
@@ -1282,9 +1305,9 @@ async def superfiltro_validaciones(
     if resultado_validacion_bls_impo:
             x += 1
             print("Entro: ",x)
-            validaciones["validacion_bls_impo"] = "si"
+            validaciones["¿Este bl NO contiene a Chile, Argentina, Bolivia, Paraguay o Uruguay como su parada de destino (orden más alta)?"] = "si"
     else :
-            validaciones["validacion_bls_impo"] = "no" 
+            validaciones["¿Este bl NO contiene a Chile, Argentina, Bolivia, Paraguay o Uruguay como su parada de destino (orden más alta)?"] = "no" 
 
     query_obtener_diferencia_requests_importacion = """
                                                     SELECT 
@@ -1340,9 +1363,9 @@ async def superfiltro_validaciones(
     if resultado_obtener_diferencia_requests_importacion:
             x += 1
             print("Entro: ",x)
-            validaciones["obtener_diferencia_requests_importacion"] = "si"
+            validaciones["¿Este BL contiene 2 requests exitosos con no más de 15 día de diferencia?"] = "si"
     else :
-            validaciones["obtener_diferencia_requests_importacion"] = "no" 
+            validaciones["¿Este BL contiene 2 requests exitosos con no más de 15 día de diferencia?"] = "no" 
 
     query_obtener_requests_incompletos_expo = """
                                             WITH cte AS (
@@ -1411,10 +1434,297 @@ async def superfiltro_validaciones(
     if resultado_obtener_requests_incompletos_expo:
             x += 1
             print("Entro: ",x)
-            validaciones["obtener_requests_incompletos_expo"] = "si"
+            validaciones["¿Este BL contiene 2 request exitosas, una a la salida y otra a la llegada planificada de destino?"]  = "si"
     else :
-            validaciones["obtener_requests_incompletos_expo"] = "no" 
+            validaciones["¿Este BL contiene 2 request exitosas, una a la salida y otra a la llegada planificada de destino?"] = "no" 
 
 
     return {"bl_code":bl_code,
                 "validaciones":validaciones}
+
+#-------------------------------------------
+#------ALERTA VALIDACIÓN DE TENDENCIAS------
+#-------------------------------------------
+
+@router.get("/tendencia_por_naviera_alertas/{nombre}")
+async def tendencia_naviera(nombre: str, limit: int = Query(500, ge=1), offset: int = Query(0, ge=0)):
+    query = """
+        SELECT 
+            n.nombre,
+            DATE_PART('month', b.fecha) AS mes,
+            SUM(oc.c20 + oc.c40 * 2) AS teus
+        FROM output_containers oc
+        LEFT JOIN bls b ON b.code = oc.codigo 
+        LEFT JOIN navieras n ON n.id = b.id_naviera 
+        WHERE n.nombre ILIKE :nombre
+        GROUP BY n.nombre, DATE_PART('month', b.fecha)
+        HAVING SUM(oc.c20 + oc.c40 * 2) > 0
+        ORDER BY n.nombre, mes
+        LIMIT :limit OFFSET :offset;
+    """
+    nombre = f"{nombre}%"
+
+    try:
+        # Ejecutar la consulta SQL
+        result = await database.fetch_all(query=query, values={"nombre": nombre, "limit": limit, "offset": offset})
+
+        # 🚨 Verificar si hay resultados
+        if not result:
+            raise HTTPException(status_code=404, detail="Containers no encontrados")
+
+        # 🔍 Convertir los resultados en un DataFrame
+        df = pd.DataFrame([dict(row) for row in result])
+
+        # 🚨 Verificar que las columnas necesarias existen
+        required_columns = {"nombre", "mes", "teus"}
+        if not required_columns.issubset(df.columns):
+            raise HTTPException(status_code=400, detail=f"Faltan columnas en la consulta SQL. Se encontraron: {df.columns}")
+
+        # 📊 Comparar con el mes anterior y generar alerta
+        df["mes_anterior"] = df.groupby("nombre")["mes"].shift(1)
+        df["teus_anterior"] = df.groupby("nombre")["teus"].shift(1)
+        df["cambio_teus"] = df["teus"] - df["teus_anterior"]
+
+        alertas = []
+        for _, row in df.iterrows():
+            if pd.notna(row["cambio_teus"]) and row["cambio_teus"] != 0:
+                if row["cambio_teus"] > 0:
+                    alertas.append(f"Alerta: Naviera {row['nombre']} tuvo un aumento de {row['cambio_teus']} TEUs en el mes {int(row['mes'])} en comparación con el mes anterior.")
+                else:
+                    alertas.append(f"Alerta: Naviera {row['nombre']} tuvo una disminución de {abs(row['cambio_teus'])} TEUs en el mes {int(row['mes'])} en comparación con el mes anterior.")
+
+        # 🚨 Si hay alertas, se incluirán en la respuesta
+        if alertas:
+            return {"alertas": alertas}
+
+        # 📊 Crear un gráfico de líneas con tendencia de TEUs por mes
+        plt.figure(figsize=(10, 6))
+
+        # Agrupar por naviera y graficar
+        for naviera, group in df.groupby("nombre"):
+            plt.plot(group["mes"], group["teus"], marker="o", label=naviera)
+
+        plt.xlabel("Mes")
+        plt.ylabel("TEUs")
+        plt.title("Tendencia de TEUs por Naviera")
+        plt.xticks(range(1, 13))  # Mostrar meses del 1 al 12
+        plt.legend(title="Naviera")
+        plt.grid(True)
+
+        # 📌 Guardar el gráfico en memoria (sin escribir en disco)
+        buffer = BytesIO()
+        plt.savefig(buffer, format="png")
+        plt.close()
+        buffer.seek(0)
+
+        # 📤 Enviar la imagen como respuesta
+        return StreamingResponse(buffer, media_type="image/png")
+
+    except Exception as e:
+        return {"error": f"Error al ejecutar la consulta: {str(e)}"}
+
+@router.get("/tendencia_etapa_alertas/{etapa}")
+async def tendencia_etapa(etapa: str, limit: int = Query(500, ge=1), offset: int = Query(0, ge=0)):
+    try:
+        etapa_int = int(etapa)
+
+        query = """
+                SELECT 
+                    SUM(oc.c20 + oc.c40 * 2) AS teus
+                FROM output_containers oc
+                LEFT JOIN bls b ON b.code = oc.codigo
+                WHERE b.id_etapa = :etapa
+                GROUP BY b.id_etapa
+                HAVING SUM(oc.c20 + oc.c40 * 2) > 0
+                LIMIT :limit OFFSET :offset;
+                """
+        
+        result = await database.fetch_one(query=query, values={"etapa": etapa_int, "limit": limit, "offset": offset})
+
+        if not result:
+            raise HTTPException(status_code=404, detail="No se encontraron resultados para la etapa")
+
+        total_teus = result["teus"]
+        alerta = None
+
+        if total_teus > 2000000:
+            alerta = f"🚨 ALERTA CRÍTICA: TEUs ({total_teus}) supera 2,000,000."
+        elif total_teus > 300000:
+            alerta = f"⚠️ ALERTA: TEUs ({total_teus}) supera 300,000."
+        elif total_teus < 1000000:
+            alerta = f"⚠️ ALERTA: TEUs ({total_teus}) está por debajo de 1,000,000."
+        elif total_teus < 100000:
+            alerta = f"🚨 ALERTA CRÍTICA: TEUs ({total_teus}) está por debajo de 100,000."
+
+        return {"etapa": etapa_int, "total_teus": total_teus, "alerta": alerta}
+
+    except ValueError:
+        raise HTTPException(status_code=400, detail="El valor de 'etapa' debe ser un número entero.")
+    except Exception as e:
+        return {"error": f"Error al ejecutar la consulta: {str(e)}"}
+
+@router.get("/tendencia_contenedor_dryreefer_alertas/{contenido}")
+async def tendencia_contenedor_dryreefer(contenido: str,
+    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 500
+    offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 
+    ):
+    query = """
+            SELECT 
+                n.nombre,
+                oc."dry/reefer",
+                SUM(oc.c20 + oc.c40 * 2) AS teus
+            FROM output_containers oc
+            JOIN bls b on b.code = oc.codigo
+            LEFT JOIN navieras n ON n.id = b.id_naviera
+            WHERE oc."dry/reefer" ILIKE :contenido
+            GROUP BY
+                n.nombre,
+                oc."dry/reefer"
+            HAVING SUM(oc.c20 + oc.c40 * 2) > 0
+            LIMIT :limit OFFSET :offset;
+            """
+    contenido = f"{contenido}%"
+    
+    try:
+        # Ejecutamos la consulta
+        result = await database.fetch_all(query=query, values={"contenido": contenido, "limit": limit, "offset": offset})
+        
+        # Verificamos si no hay resultados
+        if not result:
+            return {"message": "No existen datos que cumplan con el tipo de contenido seleccionado"}
+        
+        # Convertimos los resultados a un formato JSON
+        data = [
+            {"naviera": row["nombre"], "contenido": row["dry/reefer"], "teus": row["teus"]}
+            for row in result
+        ]
+
+        # Sumamos el total de TEUs
+        total_teus = sum(row["teus"] for row in result)
+        alerta = None
+
+        if total_teus > 2000000:
+            alerta = f"🚨 ALERTA CRÍTICA: TEUs ({total_teus}) supera 2,000,000."
+        elif total_teus > 1000000:
+            alerta = f"⚠️ ALERTA: TEUs ({total_teus}) supera 1,000,000."
+        elif total_teus < 1000000:
+            alerta = f"⚠️ ALERTA: TEUs ({total_teus}) está por debajo de 1,000,000."
+        elif total_teus < 100000:
+            alerta = f"🚨 ALERTA CRÍTICA: TEUs ({total_teus}) está por debajo de 100,000."
+
+        return {"tendencia": data, "total_teus": total_teus, "alerta": alerta}
+    
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de tendencia: {str(e)}"}
+
+@router.get("/tendencia_por_origen_alertas/{origen_locode}")
+async def tendencia_por_origen(origen_locode: str,
+    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 500
+    offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 
+    ):
+    query = """
+            SELECT DISTINCT
+                n.nombre,
+                SUM(oc.c20 + oc.c40 * 2) AS teus,
+                p.locode AS o
+            FROM output_containers oc
+            LEFT JOIN bls b ON b.code = oc.codigo
+            LEFT JOIN navieras n ON n.id = b.id_naviera 
+            LEFT JOIN tracking t ON t.id = oc.id_origen 
+            LEFT JOIN paradas p  ON p.id = t.id_parada 
+            WHERE p.locode ILIKE :origen_locode
+            GROUP BY
+                n.nombre,
+                p.locode
+            HAVING SUM(oc.c20 + oc.c40 * 2) > 0
+            LIMIT :limit OFFSET :offset;
+            """
+    origen_locode = f"{origen_locode}%"
+    
+    try:
+        # Ejecutamos la consulta
+        result = await database.fetch_all(query=query, values={"origen_locode": origen_locode, "limit": limit, "offset": offset})
+        
+        # Verificamos si no hay resultados
+        if not result:
+            return {"message": "No existen datos que cumplan con el origen seleccionado"}
+        
+        # Convertimos los resultados a un formato JSON
+        data = [
+            {"naviera": row["nombre"], "origen_locode": row["o"], "teus": row["teus"]}
+            for row in result
+        ]
+
+        # Sumamos el total de TEUs
+        total_teus = sum(row["teus"] for row in result)
+        alerta = None
+
+        if total_teus > 2000000:
+            alerta = f"🚨 ALERTA CRÍTICA: TEUs ({total_teus}) supera 2,000,000."
+        elif total_teus > 1000000:
+            alerta = f"⚠️ ALERTA: TEUs ({total_teus}) supera 1,000,000."
+        elif total_teus < 1000000:
+            alerta = f"⚠️ ALERTA: TEUs ({total_teus}) está por debajo de 1,000,000."
+        elif total_teus < 100000:
+            alerta = f"🚨 ALERTA CRÍTICA: TEUs ({total_teus}) está por debajo de 100,000."
+
+        return {"tendencia": data, "total_teus": total_teus, "alerta": alerta}
+    
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de tendencia: {str(e)}"}
+
+@router.get("/tendencia_por_destino_alertas{destino_locode}")
+async def tendencia_por_destino(destino_locode: str,
+    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 500
+    offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 
+    ):
+    query = """
+            SELECT DISTINCT
+                n.nombre,
+                SUM(oc.c20 + oc.c40 * 2) AS teus,
+                p.locode AS o
+            FROM output_containers oc
+            LEFT JOIN bls b ON b.code = oc.codigo
+            LEFT JOIN navieras n ON n.id = b.id_naviera 
+            LEFT JOIN tracking t ON t.id = oc.id_destino 
+            LEFT JOIN paradas p  ON p.id = t.id_parada 
+            WHERE p.locode ILIKE :destino_locode
+            GROUP BY
+                n.nombre,
+                p.locode
+            HAVING SUM(oc.c20 + oc.c40 * 2) > 0
+            LIMIT :limit OFFSET :offset;
+            """
+    destino_locode = f"{destino_locode}%"
+    
+    try:
+        # Ejecutamos la consulta
+        result = await database.fetch_all(query=query, values={"destino_locode": destino_locode, "limit": limit, "offset": offset})
+        
+        # Verificamos si no hay resultados
+        if not result:
+            return {"message": "No existen datos que cumplan con el destino seleccionado"}
+        
+        # Convertimos los resultados a un formato JSON
+        data = [
+            {"naviera": row["nombre"], "destino_locode": row["o"], "teus": row["teus"]}
+            for row in result
+        ]
+
+        # Sumamos el total de TEUs
+        total_teus = sum(row["teus"] for row in result)
+        alerta = None
+
+        if total_teus > 2000000:
+            alerta = f"🚨 ALERTA CRÍTICA: TEUs ({total_teus}) supera 2,000,000."
+        elif total_teus > 1000000:
+            alerta = f"⚠️ ALERTA: TEUs ({total_teus}) supera 1,000,000."
+        elif total_teus < 1000000:
+            alerta = f"⚠️ ALERTA: TEUs ({total_teus}) está por debajo de 1,000,000."
+        elif total_teus < 100000:
+            alerta = f"🚨 ALERTA CRÍTICA: TEUs ({total_teus}) está por debajo de 100,000."
+
+        return {"tendencia": data, "total_teus": total_teus, "alerta": alerta}
+    
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de tendencia: {str(e)}"}
