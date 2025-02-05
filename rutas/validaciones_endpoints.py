@@ -873,6 +873,64 @@ async def tendencia_por_destino_json(destino_locode: str,
     except Exception as e:
         return {"error": f"Error al ejecutar la validación de tendencia: {str(e)}"}
 
+@router.get("/tendencia_completa_por_navieras")
+async def tendencia_por_navieras(limit: int = Query(500, ge=1), offset: int = Query(0, ge=0)):
+    query = """
+        SELECT 
+            n.nombre,
+            DATE_PART('month', b.fecha) AS mes,
+            SUM(oc.c20 + oc.c40 * 2) AS teus
+        FROM output_containers oc
+        LEFT JOIN bls b ON b.code = oc.codigo 
+        LEFT JOIN navieras n ON n.id = b.id_naviera 
+        GROUP BY n.nombre, DATE_PART('month', b.fecha)
+        HAVING SUM(oc.c20 + oc.c40 * 2) > 0
+        ORDER BY n.nombre, mes
+        LIMIT :limit OFFSET :offset;
+    """
+
+    try:
+        # Ejecutar la consulta SQL
+        result = await database.fetch_all(query=query, values={"limit": limit, "offset": offset})
+
+        # 🚨 Verificar si hay resultados
+        if not result:
+            raise HTTPException(status_code=404, detail="No se encontraron datos de navieras")
+
+        # Convertir los resultados a un DataFrame
+        df = pd.DataFrame([dict(row) for row in result])
+
+        # 🚨 Verificar que las columnas necesarias existen
+        required_columns = {"nombre", "mes", "teus"}
+        if not required_columns.issubset(df.columns):
+            raise HTTPException(status_code=400, detail="Error en la consulta: columnas faltantes")
+
+        # 📊 Generar gráfico de tendencia para todas las navieras
+        plt.figure(figsize=(12, 6))
+
+        for naviera, group in df.groupby("nombre"):
+            plt.plot(group["mes"], group["teus"], marker="o", linestyle="-", label=naviera)
+            for _, row in group.iterrows():
+                plt.text(row["mes"], row["teus"], f"{int(row['teus'])}", fontsize=8, ha="right")
+
+        plt.xlabel("Mes")
+        plt.ylabel("TEUs")
+        plt.title("Tendencia de TEUs por Naviera")
+        plt.xticks(range(1, 13))  # Mostrar meses del 1 al 12
+        plt.legend(title="Naviera", bbox_to_anchor=(1.05, 1), loc="upper left")
+        plt.grid(True)
+
+        # 📌 Guardar el gráfico en memoria
+        buffer = BytesIO()
+        plt.savefig(buffer, format="png", bbox_inches="tight")
+        plt.close()  # 💡 IMPORTANTE: Cerrar la figura para evitar problemas en FastAPI
+        buffer.seek(0)
+
+        # 📤 Enviar la imagen como respuesta
+        return StreamingResponse(buffer, media_type="image/png")
+
+    except Exception as e:
+        return {"error": f"Error al ejecutar la consulta: {str(e)}"}
 
 #-------------------------------------------
 #----------SUPERFILTRO VALIDACIONES-----------
