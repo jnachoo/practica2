@@ -935,6 +935,149 @@ async def tendencia_por_navieras(limit: int = Query(500, ge=1), offset: int = Qu
     except Exception as e:
         return {"error": f"Error al ejecutar la consulta: {str(e)}"}
 
+@router.get("/tendencia_proporcion_naviera/{nombre}")
+async def tendencia_proporcion_naviera(nombre: str, limit: int = Query(500, ge=1), offset: int = Query(0, ge=0)):
+    query = """
+        SELECT 
+            n.nombre,
+            DATE_PART('month', b.fecha) AS mes,
+            SUM(oc.c20 + oc.c40 * 2) AS teus,
+            COUNT(b.id_naviera) AS cantidad_bls,
+            SUM(oc.c20 + oc.c40 * 2) / NULLIF(COUNT(b.id_naviera), 0) AS proporcion_teus_bls
+        FROM output_containers oc
+        LEFT JOIN bls b ON b.code = oc.codigo 
+        LEFT JOIN navieras n ON n.id = b.id_naviera 
+        WHERE n.nombre ILIKE :nombre
+        GROUP BY n.nombre, DATE_PART('month', b.fecha)
+        HAVING SUM(oc.c20 + oc.c40 * 2) > 0
+        ORDER BY n.nombre, mes
+        LIMIT :limit OFFSET :offset;
+    """
+    nombre = f"{nombre}%"
+
+    try:
+        result = await database.fetch_all(query=query, values={"nombre": nombre, "limit": limit, "offset": offset})
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="Datos no encontrados")
+        
+        df = pd.DataFrame([dict(row) for row in result])
+        
+        required_columns = {"nombre", "mes", "proporcion_teus_bls"}
+        if not required_columns.issubset(df.columns):
+            raise HTTPException(status_code=400, detail=f"Faltan columnas en la consulta SQL. Se encontraron: {df.columns}")
+        
+        plt.figure(figsize=(10, 6))
+        for naviera, group in df.groupby("nombre"):
+            plt.plot(group["mes"], group["proporcion_teus_bls"], marker="o", label=naviera)
+        
+        plt.xlabel("Mes")
+        plt.ylabel("Proporción TEUs / BLS")
+        plt.title("Tendencia de la Proporción TEUs por BLS por Naviera")
+        plt.xticks(range(1, 13))
+        plt.legend(title="Naviera")
+        plt.grid(True)
+        
+        buffer = BytesIO()
+        plt.savefig(buffer, format="png")
+        buffer.seek(0)
+        
+        return StreamingResponse(buffer, media_type="image/png")
+    
+    except Exception as e:
+        return {"error": f"Error al ejecutar la consulta: {str(e)}"}
+
+@router.get("/tendencia_proporcion_completa_naviera/{nombre}")
+async def tendencia_proporcion_naviera(nombre: str, limit: int = Query(500, ge=1), offset: int = Query(0, ge=0)):
+    query = """
+        SELECT 
+            n.nombre,
+            DATE_PART('month', b.fecha) AS mes,
+            SUM(oc.c20 + oc.c40 * 2) AS teus,
+            COUNT(b.id_naviera) AS cantidad_bls,
+            SUM(oc.c20 + oc.c40 * 2) / NULLIF(COUNT(b.id_naviera), 0) AS proporcion_teus_bls
+        FROM output_containers oc
+        LEFT JOIN bls b ON b.code = oc.codigo 
+        LEFT JOIN navieras n ON n.id = b.id_naviera 
+        WHERE n.nombre ILIKE :nombre
+        GROUP BY n.nombre, DATE_PART('month', b.fecha)
+        HAVING SUM(oc.c20 + oc.c40 * 2) > 0
+        ORDER BY n.nombre, mes
+        LIMIT :limit OFFSET :offset;
+    """
+    nombre = f"{nombre}%"
+
+    try:
+        result = await database.fetch_all(query=query, values={"nombre": nombre, "limit": limit, "offset": offset})
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="Datos no encontrados")
+        
+        df = pd.DataFrame([dict(row) for row in result])
+        
+        required_columns = {"nombre", "mes", "teus", "cantidad_bls", "proporcion_teus_bls"}
+        if not required_columns.issubset(df.columns):
+            raise HTTPException(status_code=400, detail=f"Faltan columnas en la consulta SQL. Se encontraron: {df.columns}")
+        
+        plt.figure(figsize=(12, 6))
+        for naviera, group in df.groupby("nombre"):
+            plt.plot(group["mes"], group["teus"], marker="s", linestyle="-", alpha=0.7, label=f"TEUs {naviera}")
+            plt.plot(group["mes"], group["cantidad_bls"], marker="^", linestyle="-", alpha=0.7, label=f"BLS {naviera}")
+        
+        plt.xlabel("Mes")
+        plt.ylabel("Valores")
+        plt.title("Tendencia de TEUs, BLS y Proporción TEUs/BLS por Naviera")
+        plt.xticks(range(1, 13))
+        plt.legend(title="Naviera")
+        plt.grid(True)
+        
+        buffer = BytesIO()
+        plt.savefig(buffer, format="png")
+        buffer.seek(0)
+        
+        return StreamingResponse(buffer, media_type="image/png")
+    
+    except Exception as e:
+        return {"error": f"Error al ejecutar la consulta: {str(e)}"}
+
+@router.get("/tendencia_proporcion_completa_naviera_json/{nombre}")
+async def tendencia_proporcion_naviera(nombre: str, limit: int = Query(500, ge=1), offset: int = Query(0, ge=0)):
+    query = """
+        SELECT 
+            n.nombre,
+            DATE_PART('month', b.fecha) AS mes,
+            SUM(oc.c20 + oc.c40 * 2) AS teus,
+            COUNT(b.id_naviera) AS cantidad_bls,
+            SUM(oc.c20 + oc.c40 * 2) / NULLIF(COUNT(b.id_naviera), 0) AS proporcion_teus_bls
+        FROM output_containers oc
+        LEFT JOIN bls b ON b.code = oc.codigo 
+        LEFT JOIN navieras n ON n.id = b.id_naviera 
+        WHERE n.nombre ILIKE :nombre
+        GROUP BY n.nombre, DATE_PART('month', b.fecha)
+        HAVING SUM(oc.c20 + oc.c40 * 2) > 0
+        ORDER BY n.nombre, mes
+        LIMIT :limit OFFSET :offset;
+    """
+    nombre = f"{nombre}%"
+
+    try:
+        result = await database.fetch_all(query=query, values={"nombre": nombre, "limit": limit, "offset": offset})
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="Datos no encontrados")
+        
+        df = pd.DataFrame([dict(row) for row in result])
+        
+        required_columns = {"nombre", "mes", "teus", "cantidad_bls", "proporcion_teus_bls"}
+        if not required_columns.issubset(df.columns):
+            raise HTTPException(status_code=400, detail=f"Faltan columnas en la consulta SQL. Se encontraron: {df.columns}")
+        
+        return df.to_dict(orient="records")
+    
+    except Exception as e:
+        return {"error": f"Error al ejecutar la consulta: {str(e)}"}
+
+
 #-------------------------------------------
 #----------SUPERFILTRO VALIDACIONES-----------
 #-------------------------------------------
