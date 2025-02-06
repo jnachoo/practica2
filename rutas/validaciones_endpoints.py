@@ -292,8 +292,13 @@ async def validacion_requests_expo(
         WHERE filtered_cte.rn = 1
         LIMIT :limit OFFSET :offset;
     """
-    result = await database.fetch_all(query=query, values={"limit": limit, "offset": offset})
-
+    try:
+        result = await database.fetch_all(query=query, values={"limit": limit, "offset": offset})
+        if not result:
+            return {"message": "No existen datos que no cumplan con la validación de request en exportaciones"}
+        return result
+    except Exception as e:
+        return {"error": f"Error al ejecutar la validación de request en exportaciones: {str(e)}"}
 #-------------------------------------------
 #----------VALIDACIONES TENDENCIA-----------
 #-------------------------------------------

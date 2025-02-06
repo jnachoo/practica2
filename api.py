@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from database import database
 #from rutas.bls_endpoints import cargar_navieras 
-from rutas import bls_endpoints, containers_endpoints, requests_endpoints, paradas_endpoints,validaciones_endpoints,autenticacion
+from rutas import bls_endpoints, containers_endpoints, requests_endpoints, paradas_endpoints,validaciones_endpoints,autenticacion, scraper
 
 app = FastAPI()
 
@@ -39,6 +39,7 @@ app.include_router(requests_endpoints.router)
 app.include_router(paradas_endpoints.router)
 app.include_router(validaciones_endpoints.router)
 app.include_router(autenticacion.router)
+app.include_router(scraper.router)
 
 @app.get("/")
 def leer_raiz():
