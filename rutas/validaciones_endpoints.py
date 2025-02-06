@@ -12,8 +12,8 @@ import pandas as pd
 import os
 import httpx
 from io import BytesIO
+import asyncio
 
-# Crear el APIRouter
 router = APIRouter()
 
 #---------------------------------
@@ -294,9 +294,6 @@ async def validacion_requests_expo(
     """
     result = await database.fetch_all(query=query, values={"limit": limit, "offset": offset})
 
-    
-    #locode = f"'{locode}'"
-
 #-------------------------------------------
 #----------VALIDACIONES TENDENCIA-----------
 #-------------------------------------------
@@ -304,6 +301,7 @@ async def validacion_requests_expo(
 #-------------------------------------------
 #----------ENDPOINT PARA GRÁFICOS-----------
 #-------------------------------------------
+
 
 @router.get("/tendencia_por_naviera/{nombre}")
 async def tendencia_naviera(nombre: str, limit: int = Query(500, ge=1), offset: int = Query(0, ge=0)):
@@ -938,12 +936,43 @@ async def tendencia_por_navieras(limit: int = Query(500, ge=1), offset: int = Qu
 
 @router.get("/superfiltro_validaciones/")
 async def superfiltro_validaciones(
+    bl_code: str,
     limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 500
     offset: int = Query(0, ge=0), # Índice de inicio, por defecto 
-    bl_code: str = Query(None) 
     ):
-    x = 0
     validaciones = {}
+
+    # Ejecutar todas las funciones en paralelo
+    resultados = await asyncio.gather(
+        superfiltro_validaciones_1_2(bl_code, limit, offset),
+        superfiltro_validaciones_3_4(bl_code, limit, offset),
+        superfiltro_validaciones_5_6(bl_code, limit, offset),
+        superfiltro_validaciones_7_8(bl_code, limit, offset),
+        superfiltro_validaciones_9_10(bl_code, limit, offset),
+        superfiltro_validaciones_11(bl_code, limit, offset),
+        superfiltro_validaciones_12(bl_code, limit, offset)
+    )
+
+    # Unir los resultados
+    count = 0
+    for resultado in resultados:
+        count += 1
+        print("VALIDACION: ", count, " - resultado: ", resultado)
+        validaciones.update(resultado)
+
+    return {"bl_code":bl_code,
+            "validaciones":validaciones}
+
+async def superfiltro_validaciones_1_2(
+    bl_code: str,
+    limit: int ,  # Número de resultados por página, por defecto 500
+    offset: int # Índice de inicio, por defecto 
+    ):
+    x=0
+    validaciones = {}
+
+    # --------------------------------- 1
+
     query_locode_nulo = """
                         SELECT 
                             b.code
@@ -974,7 +1003,9 @@ async def superfiltro_validaciones(
         validaciones["¿Este bl tiene el parámetro locode de tipo nulo?"] = "si"
     else :
         validaciones["¿Este bl tiene el parámetro locode de tipo nulo?"] = "no" 
-    
+
+    # --------------------------------- 2 
+
     query_cruce_contenedores = """
                                   SELECT DISTINCT ON (c.size)
                                     c.code AS codigo_container,
@@ -1011,6 +1042,17 @@ async def superfiltro_validaciones(
         validaciones["¿Este bl tiene el tipo de contenedor en el diccionario de contenedores?"] = "si"
     else :
         validaciones["¿Este bl tiene el tipo de contenedor en el diccionario de contenedores?"] = "no"
+    return validaciones
+
+async def superfiltro_validaciones_3_4(
+    bl_code: str,
+    limit: int ,  # Número de resultados por página, por defecto 500
+    offset: int # Índice de inicio, por defecto 
+    ):
+    x=0
+    validaciones = {}
+
+    # --------------------------------- 3
 
     query_container_repetido = """
                                     SELECT 
@@ -1050,6 +1092,10 @@ async def superfiltro_validaciones(
     else :
             validaciones["¿Este bl posee más de un container con la misma fecha y nave que lo transporta?"] = "no"
 
+    # --------------------------------- 4
+
+    # HASTA ACA DEMORA 6 SEGUNDOS
+
     query_paradas_pol_y_pod = """
                             SELECT 
                                 b.code, 
@@ -1082,7 +1128,14 @@ async def superfiltro_validaciones(
             validaciones["¿En este bl la parada pol y pod son del tipo verdadero?"] = "si"
     else :
             validaciones["¿En este bl la parada pol y pod son del tipo verdadero?"] = "no"
+    # HASTA ACA DEMORA 8
+    return validaciones
 
+
+async def superfiltro_validaciones_5_6(bl_code: str, limit:int, offset:int):
+    x=0
+    validaciones = {}    
+    # ---------------------------------5
     query_paradas_con_validacion= """
                                 SELECT DISTINCT
                                     subquery.code,
@@ -1154,8 +1207,7 @@ async def superfiltro_validaciones(
     else :
             validaciones["¿Este BL contiene la parada de orden mayor y POD como Chile?"] = "no"
 
-    #Verifica que si la etapa = 1, entonces el destino y el POD no puede ser CL.
-    
+    # ------------------------------ 6
     query_obtener_paradas_con_orden_repetida = """
                             SELECT 
                                 b.code, 
@@ -1192,7 +1244,19 @@ async def superfiltro_validaciones(
             validaciones["¿Este bl contiene paradas con el mismo número de orden?"] = "si"
     else :
             validaciones["¿Este bl contiene paradas con el mismo número de orden?"] = "no"
+    return validaciones
             
+async def superfiltro_validaciones_7_8(
+    bl_code: str,
+    limit: int ,  # Número de resultados por página, por defecto 500
+    offset: int # Índice de inicio, por defecto 
+    ):
+    x=0
+    validaciones = {}
+
+    # --------------------------------- 1
+
+    # -------------------------------- 7        
     query_verificar_registros_etapa1_pais_distinto_cl = """
                                                 SELECT DISTINCT 
                                                 b.code AS codigo_bl,
@@ -1234,6 +1298,8 @@ async def superfiltro_validaciones(
     else :
             validaciones["¿Este bl contiene a Chile como su parada de origen (POD)?"] = "no"
 
+    # ------------------------------ 8
+
     query_verificar_registros_etapa2_pais_distinto_cl = """
                                                         SELECT DISTINCT 
                                                         b.code AS codigo_bl,
@@ -1273,8 +1339,14 @@ async def superfiltro_validaciones(
             print("Entro: ",x)
             validaciones["¿Este bl contiene a Chile como su parada de destino (POL)?"] = "si"
     else :
-            validaciones["¿Este bl contiene a Chile como su parada de destino (POL)?"] = "no" 
+            validaciones["¿Este bl contiene a Chile como su parada de destino (POL)?"] = "no"
+    
+    return validaciones
 
+async def superfiltro_validaciones_9_10(bl_code:str,limit:int,offset:int):
+    x=0
+    validaciones = {}
+    #----------------------------1
     query_validacion_bls_expo = """
                                 SELECT 
                                 subquery.code,
@@ -1321,6 +1393,8 @@ async def superfiltro_validaciones(
     else :
             validaciones["¿Este bl NO contiene a Chile, Argentina o Bolivia como su parada de origen (orden = 1)?"] = "no" 
 
+
+    #----------------------------2
     query_validacion_bls_impo = """
                                 SELECT 
                                 subquery.code,
@@ -1367,6 +1441,12 @@ async def superfiltro_validaciones(
     else :
             validaciones["¿Este bl NO contiene a Chile, Argentina, Bolivia, Paraguay o Uruguay como su parada de destino (orden más alta)?"] = "no" 
 
+    return validaciones
+
+async def superfiltro_validaciones_11(bl_code:str,limit:int,offset:int):
+    x=0
+    validaciones = {}
+    #----------------------------1
     query_obtener_diferencia_requests_importacion = """
                                                     SELECT 
                                                     f1.code,
@@ -1425,6 +1505,12 @@ async def superfiltro_validaciones(
     else :
             validaciones["¿Este BL contiene 2 requests exitosos con no más de 15 día de diferencia?"] = "no" 
 
+    return validaciones
+
+async def superfiltro_validaciones_12(bl_code:str,limit:int,offset:int):
+    x=0
+    validaciones = {}
+    #----------------------------1
     query_obtener_requests_incompletos_expo = """
                                             WITH cte AS (
                                             SELECT 
@@ -1496,10 +1582,7 @@ async def superfiltro_validaciones(
     else :
             validaciones["¿Este BL contiene 2 request exitosas, una a la salida y otra a la llegada planificada de destino?"] = "no" 
 
-
-    return {"bl_code":bl_code,
-                "validaciones":validaciones}
-
+    return validaciones
 #-------------------------------------------
 #------ALERTA VALIDACIÓN DE TENDENCIAS------
 #-------------------------------------------
