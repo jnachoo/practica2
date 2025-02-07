@@ -68,7 +68,7 @@ async def superfiltro_orden_descargas(
         return {"error": f"Error ejecutando la consulta orden descarga: {str(e)}"}
 
 @router.patch("/orden_descarga/")
-async def orden_descarga(
+async def orden_descarga_editar(
     id_orden: int,
     nombre_usuario: str =Query(None),
     fecha_creacion: str = Query(None),
@@ -149,7 +149,7 @@ async def orden_descarga(
 
 
 @router.post("/orden_descarga/")
-async def orden_descarga(
+async def orden_descarga_crear(
     nombre_usuario: str,
     fecha_creacion: str,
     fecha_programacion: str,
