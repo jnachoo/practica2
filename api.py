@@ -1,9 +1,9 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
-from database import database
+from db.database import database
 #from rutas.bls_endpoints import cargar_navieras 
-from rutas import bls_endpoints, containers_endpoints, requests_endpoints, paradas_endpoints,validaciones_endpoints,autenticacion, scraper
+from routes import bls_endpoints, containers_endpoints, requests_endpoints, paradas_endpoints,validaciones_endpoints,autenticacion, scraper
 
 app = FastAPI()
 
