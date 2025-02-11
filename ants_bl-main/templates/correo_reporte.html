@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reporte de Rutina</title>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 20px;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }}
+        h1 {{
+            color: #333;
+            text-align: center;
+        }}
+        h2 {{
+            color: #555;
+        }}
+        .container {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 20px;
+        }}
+        .image_container {{
+            width: 50%;
+            text-align: right;
+        }}
+        .table_container {{
+            width: 50%;
+        }}
+        img {{
+            max-width: 100%;
+            height: auto;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+        th, td {{
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }}
+        th {{
+            background-color: #f2f2f2;
+        }}
+        .footer {{
+            margin-top: 30px;
+            font-size: 12px;
+            color: #777;
+            text-align: center;
+        }}
+    </style>
+</head>
+<body>
+    <h1>Reporte de Rutina</h1>
+    <div>
+        <h2>Fecha: {fecha}</h2>
+        <h2>La rutina finalizo con el siguiente mensaje: {error}</h2>
+        <br>
+
+        <h2>Cantidad Total de BLs Cargados</h2>
+        <div style="width: 15%;">
+            {cargo_counts}
+        </div>
+        
+        <h2>Cantidad de BLs por cada Estado</h2>
+        <div class="container">
+            <div class="table_container">
+                {estado_counts}
+            </div>
+            <div class="image_container">
+                <img src="cid:grafico_estado" alt="BLs por Estado">
+            </div>
+        </div>
+
+        <h2>Cantidad de BLs por cada Naviera</h2>
+        <div class="container">
+            <div class="table_container">
+                {navieras_counts}
+            </div>
+            <div class="image_container">
+                <img src="cid:grafico_naviera" alt="BLs por Naviera">
+            </div>
+        </div>
+
+        <h2>Cantidad de BLs de cada Naviera por cada uno de los estados</h2>
+        <div>
+            {estados_navieras_counts}
+        </div>
+
+        <div class="footer">
+            <p>Este es un reporte automático generado en una rutina.</p>
+        </div>
+    </div>
+</body>
+</html>

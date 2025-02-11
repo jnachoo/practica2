@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carga de Contenedores</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+</head>
+<body>
+    <h1>Carga de BL y Contenedores</h1>
+    <h2>BLs pendientes por revisar:</h2>
+    <ul>
+        {% for bl in pending_bls %}
+            <li><a href="{{ bl.bl_url }}" target="_blank" data-bl-code="{{ bl.bl_code }}" class="bl-link">{{ bl.bl_code }}</a></li>
+        {% endfor %}
+    </ul>
+    <form id="containerForm">
+        Código BL: <input type="text" name="bl_code" id="blCodeInput"><br>
+        Lista de Contenedores:<br> <textarea name="container_list" rows="10" cols="70"></textarea><br>
+        <input type="button" value="Enviar" onclick="submitForm()">
+    </form>
+    <div id="responseMessage"></div>
+
+    <script>
+            // Añadimos el evento de clic a los enlaces de BL
+        $(document).on('click', '.bl-link', function() {
+            var blCode = $(this).data('bl-code');  // Obtiene el código BL del atributo 'data-bl-code'
+            $('#blCodeInput').val(blCode);  // Establece el valor del input del formulario
+        });
+
+    function submitForm() {
+        $.ajax({
+            type: "POST",
+            url: "/",  // Asegúrate de que la URL corresponde al endpoint correcto en tu servidor Flask
+            data: $('#containerForm').serialize(),
+            success: function(response) {
+                $('#responseMessage').html('<p>' + response.message + '</p>');
+                $('#containerForm').trigger('reset');
+                updatePendingBLs(response.pending_bls);
+            },
+            error: function(response) {
+                $('#responseMessage').html('<p>Error: ' + response.responseJSON.error + '</p>');
+            }
+        });
+    }
+    function updatePendingBLs(bls) {
+        const list = $('#pendingBLs');
+        list.empty(); // Limpia la lista actual
+        bls.forEach(bl => {
+            list.append(`<li><a href="${bl.bl_url}" target="_blank" class="bl-link" data-bl-code="${bl.bl_code}">${bl.bl_code}</a></li>`);
+        });
+    }
+    </script>
+</body>
+</html>

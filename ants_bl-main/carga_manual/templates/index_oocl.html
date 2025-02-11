@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scraper Manual</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Scraper Manual</h1>
+        <p>Web OOCL: <a href="https://www.oocl.com/eng/ourservices/eservices/cargotracking/Pages/cargotracking.aspx"
+                target="_blank">https://www.oocl.com/eng/ourservices/eservices/cargotracking/Pages/cargotracking.aspx</a>
+        </p>
+        <h2>BLs pendientes: {{ cantidad }}</h2>
+        <h2>BL a revisar:</h2>
+        <ul>
+            {% for bl in pending_bls %}
+            <li class="lista-bl"><a
+                    href="https://www.oocl.com/eng/ourservices/eservices/cargotracking/Pages/cargotracking.aspx"
+                    target="_blank" data-bl-code="{{ bl.bl_code }}" class="bl-link">{{ bl.bl_code }}</a></li>
+            {% endfor %}
+        </ul>
+        <form id="scraperForm" method="post">
+            <label for="filename">Nombre del archivo:</label>
+            <input type="text" id="filename" name="filename" required>
+            <label for="html_content">Contenido HTML:</label>
+            <textarea id="html_content" name="html_content" rows="5" required></textarea>
+            <button type="submit">Guardar y Parsear</button>
+            <div class="spinner">
+                <i class="fas fa-spinner fa-spin"></i> Analizando HTML...
+            </div>
+        </form>
+    </div>
+    <script>
+        function copyToClipboardFallback(text, event) {
+    var textArea = document.createElement("textarea");
+    textArea.value = text;
+    document.body.appendChild(textArea);
+    textArea.select();
+    
+    try {
+        var successful = document.execCommand('copy');
+        var msg = successful ? 'Texto copiado al portapapeles' : 'Error al copiar';
+        console.log(msg);
+
+        // Crear el mensaje emergente
+        var tooltip = $('<div class="copied-tooltip">¡BL ' + text + ' copiado!</div>');
+        $('body').append(tooltip);
+
+        // Posicionar el mensaje emergente sobre el elemento
+        var offset = $(event.target).offset();
+        tooltip.css({
+            top: offset.top - tooltip.outerHeight() - 5,
+            left: offset.left + ($(event.target).outerWidth() / 2) - (tooltip.outerWidth() / 2),
+            opacity: 1
+        });
+
+        // Ocultar y eliminar el mensaje después de 2 segundos
+        setTimeout(function () {
+            tooltip.fadeOut(500, function () {
+                tooltip.remove();
+            });
+        }, 2000);
+
+    } catch (err) {
+        console.error('Error al copiar al portapapeles: ', err);
+    }
+
+    document.body.removeChild(textArea);
+}
+
+
+        $(document).ready(function () {
+            $(document).on('click', '.container .bl-link', function (event) {
+                event.preventDefault();  // Prevenir el comportamiento predeterminado del enlace
+
+                // Fecha actual en formato yyyymmdd
+                var fecha = new Date();
+                var dia = fecha.getDate();
+                var mes = fecha.getMonth() + 1;
+                var anio = fecha.getFullYear();
+                if (mes < 10) {
+                    mes = '0' + mes;
+                }
+                if (dia < 10) {
+                    dia = '0' + dia;
+                }
+                var fecha_actual = anio + '-' + mes + '-' + dia;
+
+                var blCode = $(this).data('bl-code');  // Obtiene el código BL del atributo 'data-bl-code'
+                var nombre_archivo = blCode + '_' + fecha_actual + '.html';
+                console.log(nombre_archivo);
+
+                $('#filename').val(nombre_archivo);  // Establece el valor del input del formulario
+
+                navigator.clipboard.writeText(blCode).then(function () {
+                    console.log('BL Code copiado al portapapeles: ' + blCode);
+
+                    // Crear el mensaje emergente
+                    var tooltip = $('<div class="copied-tooltip">¡BL ' + blCode + ' copiado!</div>');
+                    $('body').append(tooltip);
+
+                    // Posicionar el mensaje emergente sobre el elemento
+                    var offset = $(event.target).offset();
+                    tooltip.css({
+                        top: offset.top - tooltip.outerHeight() - 5,
+                        left: offset.left + ($(event.target).outerWidth() / 2) - (tooltip.outerWidth() / 2),
+                        opacity: 1
+                    });
+
+                    // Ocultar y eliminar el mensaje después de 2 segundos
+                    setTimeout(function () {
+                        tooltip.fadeOut(500, function () {
+                            tooltip.remove();
+                        });
+                    }, 2000);
+
+                }).catch(function (error) {
+                    console.error('Error al copiar al portapapeles: ', error);
+                });
+            });
+
+            $('#scraperForm').on('submit', function (event) {
+                var blCode = $('#filename').val().split('_')[0];
+                blCode = blCode.replace("OOLU", '');
+                var htmlContent = $('#html_content').val();
+
+
+                if (htmlContent.includes(blCode)) {
+                    // Mostrar spinner y deshabilitar el botón
+                    $('.spinner').show();  // Mostrar el spinner
+                    var submitButton = $(this).find('button[type="submit"]');
+                    submitButton.prop('disabled', true);
+                    submitButton.text('Procesando HTML...');
+
+                } else {
+                    event.preventDefault();  // Prevenir el envío del formulario
+                    alert('El HTML no contiene el código BL seleccionado.');
+                    $('.spinner').hide();  // Ocultar el spinner si se mostró previamente
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>
