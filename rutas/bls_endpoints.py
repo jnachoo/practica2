@@ -508,4 +508,39 @@ async def insertar_bls(
 
 
 
+@router.get("/bls/total")
+async def total_bls():
+    """
+    Devuelve el número total de BLs.
+    """
+    query = "SELECT COUNT(*) AS total FROM bls"
+    try:
+        total = await database.fetch_val(query)
+        return {"total_bls": total}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener el total de BLs: {str(e)}")
+
+
+@router.get("/bls/pendientes")
+async def pendientes_bls():
+    """
+    Devuelve el número total de BLs pendientes de revisión.
+    Se asume que los BLs pendientes tienen un status que comienza con 'Pendiente'.
+    """
+    query = """
+        SELECT COUNT(*) AS total_pendientes
+        FROM bls b
+        JOIN status_bl sb ON b.id_status = sb.id
+        WHERE sb.descripcion_status ILIKE 'Not Found pendiente de revisión%'
+    """
+    try:
+        total_pendientes = await database.fetch_val(query)
+        return {"total_bls_pendientes": total_pendientes}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener BLs pendientes: {str(e)}")
+
+        
+
+
+
 
