@@ -74,9 +74,9 @@ class BL(Base):
     etapa = relationship("Etapa", back_populates="bls")
     status = relationship("StatusBL", back_populates="bls")
     tracking = relationship("Tracking", back_populates="bl")
-    requests = relationship("Request", back_populates="bl")
     container_viajes = relationship("ContainerViaje", back_populates="bl")
     carga = relationship("CargaBls", back_populates="bl")
+    orden_detalles = relationship("OrdenDetalle", back_populates="bl")
     #paradas = relationship("Paradas", back_populates="bl")
 
 class Tracking(Base):
@@ -149,7 +149,7 @@ class Request(Base):
     __tablename__ = 'requests'
     
     id = Column(Integer, primary_key=True)
-    id_bl = Column(Integer, ForeignKey('bls.id'))
+    id_bl = Column(Integer)
     url = Column(String(255), nullable=False)
     fecha = Column(TIMESTAMP, nullable=False)
     mensaje = Column(String(255))
@@ -158,9 +158,9 @@ class Request(Base):
     id_respuesta = Column(Integer, ForeignKey('respuesta_requests.id'))
     
     # Relaciones
-    bl = relationship("BL", back_populates="requests")
     html_descargado = relationship("HTMLDescargado", back_populates="requests")
     respuesta = relationship("RespuestaRequest", back_populates="requests")
+    orden_detalles = relationship("OrdenDetalle", back_populates="request")
 
 class RespuestaRequest(Base):
     __tablename__ = 'respuesta_requests'  # Note: singular
@@ -245,9 +245,24 @@ class OrdenDescarga(Base):
     fecha_creacion = Column(TIMESTAMP, nullable=False)
     fecha_programacion = Column(TIMESTAMP)
     descripcion = Column(String)
+    enviar_correo = Column(Boolean, nullable=False, default=False)
     
     # Relación
     usuario = relationship("User", back_populates="ordenes_descarga")
+    orden_detalles = relationship("OrdenDetalle", back_populates="orden_descarga")
+
+class OrdenDetalle(Base):
+    __tablename__ = 'orden_detalle'
+    
+    id = Column(Integer, primary_key=True)
+    id_cabecera = Column(Integer, ForeignKey('orden_descargas.id'), nullable=False)
+    id_request = Column(Integer, ForeignKey('requests.id'), nullable=False)
+    id_bls = Column(Integer, ForeignKey('bls.id'), nullable=False)
+    
+    # Relaciones
+    orden_descarga = relationship("OrdenDescarga", back_populates="detalles")
+    request = relationship("Request", back_populates="orden_detalles")
+    bl = relationship("BL", back_populates="orden_detalles")
 
 # class DictContainer(Base):
 #     __tablename__ = "dict_containers"
