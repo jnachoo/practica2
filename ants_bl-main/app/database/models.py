@@ -255,9 +255,9 @@ class OrdenDetalle(Base):
     __tablename__ = 'orden_detalle'
     
     id = Column(Integer, primary_key=True)
-    id_cabecera = Column(Integer, ForeignKey('orden_descargas.id'), nullable=False)
-    id_request = Column(Integer, ForeignKey('requests.id'), nullable=False)
-    id_bls = Column(Integer, ForeignKey('bls.id'), nullable=False)
+    id_cabecera = Column(Integer, ForeignKey('orden_descargas.id'))
+    id_request = Column(Integer, ForeignKey('requests.id'))
+    id_bls = Column(Integer, ForeignKey('bls.id'))
     
     # Relaciones
     orden_descarga = relationship("OrdenDescarga", back_populates="detalles")
