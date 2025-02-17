@@ -11,6 +11,11 @@ from rutas import (
     scraper,
     orden_endpoint
 )
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -33,6 +38,14 @@ app.include_router(validaciones_endpoints.router)
 app.include_router(autenticacion.router)
 app.include_router(scraper.router)
 app.include_router(orden_endpoint.router)
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Iniciando aplicación FastAPI")
+    logger.info(f"API estará disponible en: http://localhost:8000/docs")
+    logger.info("Endpoints disponibles:")
+    logger.info("- /api/docs - Swagger UI")
+    logger.info("- /api/redoc - ReDoc UI")
 
 @app.get("/")
 def leer_raiz():

@@ -1,15 +1,26 @@
 import os
+import logging
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
+from dotenv import load_dotenv
 
-# Asegúrate de que DATABASE_URL tenga el prefijo asíncrono, por ejemplo:
-# "postgresql+asyncpg://user:password@host:port/dbname"
-DATABASE_URL = "postgresql+asyncpg://fgonzalez:practica.01%23@192.168.74.110:5432/ants_api"
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
+load_dotenv()
 
+# Construct DATABASE_URL from environment variables
+DATABASE_URL = f"postgresql+asyncpg://{os.getenv('DATABASE_USER')}:{os.getenv('DATABASE_PASS')}@{os.getenv('DATABASE_HOST')}:{os.getenv('DATABASE_PORT')}/{os.getenv('DATABASE_NAME')}"
 
-# Crear un motor asíncrono
-engine = create_async_engine(DATABASE_URL, echo=True)
+logger.info(f"Intentando conectar a la base de datos en: {os.getenv('DATABASE_HOST')}:{os.getenv('DATABASE_PORT')}")
+
+# Crear motor asincrono
+try:
+    engine = create_async_engine(DATABASE_URL, echo=True)
+    logger.info("Conexión a la base de datos establecida correctamente")
+except Exception as e:
+    logger.error(f"Error al conectar a la base de datos: {str(e)}")
 
 # Crear una fábrica de sesiones asíncronas
 SessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
