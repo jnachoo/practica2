@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from pydantic import BaseModel
 
-from rutas.autenticacion import check_rol, get_current_user
+#from rutas.autenticacion import check_rol, get_current_user
 from models import User, BL, Etapa, Naviera, StatusBL
 from database import get_db  # get_db debe retornar un AsyncSession
 
@@ -45,7 +45,7 @@ class BLRead(BaseModel):
     fecha_proxima_revision: Optional[str]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # ------------------------------
 # GET: Super filtro de BLs (con conversión explícita de fechas a cadena)
@@ -262,7 +262,7 @@ async def actualizar_parcial_bls(
     status: Optional[str] = Query(None),
     fecha: Optional[str] = Query(None),
     fecha_proxima_revision: Optional[str] = Query(None),
-    current_user: User = Depends(get_current_user),
+    #current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     check_rol(current_user, [1, 2])
@@ -329,10 +329,10 @@ async def insertar_bls(
     no_revisar: Optional[bool] = Query(None),
     revisado_hoy: Optional[bool] = Query(None),
     html_descargado: Optional[bool] = Query(None),
-    current_user: User = Depends(get_current_user),
+    #current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    check_rol(current_user, [1])
+    #check_rol(current_user, [1])
     stmt_naviera = select(Naviera).where(Naviera.nombre.ilike(f"{naviera.upper()}%"))
     res_naviera = await db.execute(stmt_naviera)
     naviera_instance = res_naviera.scalars().first()

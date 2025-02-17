@@ -147,7 +147,7 @@ class UserRead(BaseModel):
     id_rol: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 @router.get("/users", response_model=List[UserRead])
 async def get_all_users(
