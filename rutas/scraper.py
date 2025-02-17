@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException,Query, Depends
-from database import database
+from database import get_db
 from datetime import datetime
 from typing import List, Annotated, Optional
 from rutas.autenticacion import check_rol,get_current_user

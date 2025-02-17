@@ -1,481 +1,403 @@
-from fastapi import APIRouter, HTTPException,Query,Body
-from database import database
+from fastapi import APIRouter, HTTPException, Query, Depends
 from datetime import datetime
+from typing import Optional, List
+from sqlalchemy import select, func, desc, asc, text
+from sqlalchemy.ext.asyncio import AsyncSession
+from urllib.parse import unquote
 from pydantic import BaseModel
+
+from database import get_db  # get_db retorna un AsyncSession
+from models import Paradas, Tracking, BL, StatusBL, HTMLDescargado, RespuestaRequest
 
 router = APIRouter()
 
-class Item(BaseModel):
-    numero: int #solo numeros
-    texto: str #cualquier cadena de texto
-    booleano: bool #cualquier bool
-
-# Ejemplo de url
-# http://localhost:8000/paradas/?locode=C&pais=chil&order_by=t.orden&bl_code=SCL
+# ------------------------------
+# GET: Super filtro de paradas (usando ORM) - Versión sin campos de fecha
+# ------------------------------
 @router.get("/paradas/")
 async def super_filtro_paradas(
-    bl_code: str = Query(None),
-    locode: str = Query(None),
-    pais: str = Query(None),
-    lugar: str = Query(None),
-    is_pol: bool = Query(None),
-    is_pod: bool = Query(None),
-    orden: int = Query(None),
-    status: str = Query(None),
-    order_by: str = Query(None, regex="^(b\\.code|t\\.orden|t\\.status|p\\.locode|p\\.pais)$"),  # Campos válidos para ordenación
-    order: str = Query("ASC", regex="^(ASC|DESC|asc|desc)$"), 
-    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 500
-    offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
+    bl_code: Optional[str] = Query(None),
+    locode: Optional[str] = Query(None),
+    pais: Optional[str] = Query(None),
+    lugar: Optional[str] = Query(None),
+    is_pol: Optional[bool] = Query(None),
+    is_pod: Optional[bool] = Query(None),
+    orden: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+    order_by: Optional[str] = Query(None, regex="^(b\\.code|t\\.orden|t\\.status|p\\.locode|p\\.pais)$"),
+    order: str = Query("ASC", regex="^(ASC|DESC|asc|desc)$"),
+    limit: int = Query(500, ge=1),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db)
 ):
-
-    # Consulta a la base de datos ants_api
-    query = """
-        SELECT t.id as id_tracking,b.code AS bl_code, t.orden, t.status, p.locode, p.pais, p.lugar,
-               t.is_pol, t.is_pod
-        FROM tracking t
-        JOIN paradas p ON p.id = t.id_parada
-        JOIN bls b ON b.id = t.id_bl
-        WHERE 1=1
-    """
-    values = {}
-
-    # Agregar filtros dinámicos
+    # Seleccionar únicamente las columnas necesarias (sin campos de fecha)
+    stmt = (
+        select(
+            Tracking.id.label("id_tracking"),
+            BL.code.label("bl_code"),
+            Tracking.orden,
+            Tracking.status,
+            Paradas.locode,
+            Paradas.pais,
+            Paradas.lugar,
+            Tracking.is_pol,
+            Tracking.is_pod
+        )
+        .join(Paradas, Tracking.id_parada == Paradas.id)
+        .join(BL, Tracking.id_bl == BL.id)
+    )
     if bl_code:
-        query += " AND b.code ILIKE :bl_code"
-        values["bl_code"] = f"{bl_code}%"
+        stmt = stmt.where(BL.code.ilike(f"{bl_code}%"))
     if locode:
-        query += " AND p.locode ILIKE :locode"
-        values["locode"] = f"{locode}%"
+        stmt = stmt.where(Paradas.locode.ilike(f"{locode}%"))
     if pais:
-        query += " AND p.pais ILIKE :pais"
-        values["pais"] = f"{pais}%"
+        stmt = stmt.where(Paradas.pais.ilike(f"{pais}%"))
     if lugar:
-        query += " AND p.lugar ILIKE :lugar"
-        values["lugar"] = f"{lugar}%"
+        stmt = stmt.where(Paradas.lugar.ilike(f"{lugar}%"))
     if is_pol is not None:
-        query += " AND t.is_pol = :is_pol"
-        values["is_pol"] = bool(is_pol)
+        stmt = stmt.where(Tracking.is_pol == is_pol)
     if is_pod is not None:
-        query += " AND t.is_pod = :is_pod"
-        values["is_pod"] = bool(is_pod)
-    if orden:
-        query += " AND t.orden = :orden"
-        values["orden"] = orden
+        stmt = stmt.where(Tracking.is_pod == is_pod)
+    if orden is not None:
+        stmt = stmt.where(Tracking.orden == orden)
     if status:
-        query += " AND t.status ILIKE :status"
-        values["status"] = f"{status}%"
-
-    # Ordenación dinámica
-    if order_by:
-        query += f" ORDER BY {order_by} {order}"
-
-    # Agregar límites y desplazamiento
-    query += " LIMIT :limit OFFSET :offset"
-    values["limit"] = limit
-    values["offset"] = offset
-
+        stmt = stmt.where(Tracking.status.ilike(f"{status}%"))
+    
+    # Mapeo para ordenación
+    order_map = {
+        "b.code": BL.code,
+        "t.orden": Tracking.orden,
+        "t.status": Tracking.status,
+        "p.locode": Paradas.locode,
+        "p.pais": Paradas.pais
+    }
+    if order_by and order_by in order_map:
+        col = order_map[order_by]
+        stmt = stmt.order_by(desc(col)) if order.lower() == "desc" else stmt.order_by(asc(col))
+    stmt = stmt.limit(limit).offset(offset)
+    
     try:
-        # Ejecutar la consulta
-        result = await database.fetch_all(query=query, values=values)
-        if not result:
+        result = await db.execute(stmt)
+        rows = result.all()
+        if not rows:
             raise HTTPException(status_code=404, detail="Datos no encontrados")
-        return result
+        # Convertir cada fila usando row._mapping para obtener un dict
+        response = [dict(row._mapping) for row in rows]
+        return response
     except Exception as e:
-        return {"error": f"Error al ejecutar la consulta: {str(e)}"}
+        raise HTTPException(status_code=500, detail=f"Error al ejecutar la consulta: {str(e)}")
 
-
-#------------------------------------------------------------
-#------------------ENDPOINTS DROPDOWN------------------------
-#------------------------------------------------------------
-
+# ------------------------------
+# GET: Dropdown endpoints (locode, pais, lugar, terminal)
+# ------------------------------
 @router.get("/paradas/locode")
-async def paradas_locode():
-    query = "SELECT locode FROM paradas order by locode"
-    resultado = await database.fetch_all(query)
-    if not resultado:
+async def paradas_locode(db: AsyncSession = Depends(get_db)):
+    stmt = select(Paradas.locode).order_by(Paradas.locode)
+    result = await db.execute(stmt)
+    locodes = result.scalars().all()
+    if not locodes:
         raise HTTPException(status_code=404, detail="Locode no retornados")
-    return resultado
+    return [{"locode": l} for l in locodes]
 
 @router.get("/paradas/pais")
-async def paradas_pais():
-    query = "SELECT distinct pais FROM paradas order by pais"
-    resultado = await database.fetch_all(query)
-    if not resultado:
+async def paradas_pais(db: AsyncSession = Depends(get_db)):
+    stmt = select(Paradas.pais).distinct().order_by(Paradas.pais)
+    result = await db.execute(stmt)
+    paises = result.scalars().all()
+    if not paises:
         raise HTTPException(status_code=404, detail="Paises no retornados")
-    return resultado
+    return [{"pais": p} for p in paises]
 
 @router.get("/paradas/lugar")
-async def paradas_lugar():
-    query = "SELECT distinct lugar FROM paradas order by lugar"
-    resultado = await database.fetch_all(query)
-    if not resultado:
+async def paradas_lugar(db: AsyncSession = Depends(get_db)):
+    stmt = select(Paradas.lugar).distinct().order_by(Paradas.lugar)
+    result = await db.execute(stmt)
+    lugares = result.scalars().all()
+    if not lugares:
         raise HTTPException(status_code=404, detail="Lugares no retornados")
-    return resultado
+    return [{"lugar": l} for l in lugares]
 
 @router.get("/paradas/terminal")
-async def paradas_terminal():
-    query = "SELECT distinct terminal FROM tracking order by terminal"
-    resultado = await database.fetch_all(query)
-    if not resultado:
+async def paradas_terminal(db: AsyncSession = Depends(get_db)):
+    stmt = select(Tracking.terminal).distinct().order_by(Tracking.terminal)
+    result = await db.execute(stmt)
+    terminals = result.scalars().all()
+    if not terminals:
         raise HTTPException(status_code=404, detail="Terminales no retornados")
-    return resultado
+    return [{"terminal": t} for t in terminals]
 
+# ------------------------------
+# GET: Filtrar paradas por BL code
+# ------------------------------
 @router.get("/paradas/bl_code/{bl_code}")
-async def ver_paradas(
+async def ver_paradas_by_bl_code(
     bl_code: str,
-    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 50
-    offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
-    ):
-    query = """
-                SELECT t.id as id_tracking,b.code AS bl_code, t.orden, t.status, p.locode, p.pais, p.lugar,
-               t.is_pol, t.is_pod
-                from tracking t
-                join paradas p on p.id = t.id_parada
-                join bls b on b.id = t.id_bl
-                where b.code like :bl_code 
-                order by t.orden
-                LIMIT :limit OFFSET :offset;
-            """
-    bl_code = bl_code.upper()
-    bl_code = f"{bl_code}%"
-    try:
-        result = await database.fetch_all(query=query, values={"bl_code": bl_code, "limit": limit, "offset": offset})
-        if not result:
-            raise HTTPException(status_code=404, detail="Paradas no encontradas")
-        return result
-    except Exception as e:
-        return {"error": f"Error al ejecutar la consulta paradas_filtro_bl_code: {str(e)}"}
-    
-
-@router.get("/paradas/locode/{locode}")
-async def ver_paradas_locode(
-    locode: str,
-    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 50
-    offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
-    ):
-    query = """
-                SELECT t.id as id_tracking,b.code AS bl_code, t.orden, t.status, p.locode, p.pais, p.lugar,
-               t.is_pol, t.is_pod 
-                from tracking t
-                join paradas p on p.id = t.id_parada
-                join bls b on b.id = t.id_bl
-                where p.locode like :locode 
-                order by t.orden
-                LIMIT :limit OFFSET :offset;
-            """
-    print(f"Valor locode enviado a la consulta: {locode}")
-    locode = locode.upper()
-    locode = f"{locode}%"
-    try:
-        print(f"Valor locode enviado a la consulta: {locode}")
-
-        result = await database.fetch_all(query=query, values={"locode": locode, "limit": limit, "offset": offset})
-        if not result:
-            raise HTTPException(status_code=404, detail="Paradas no encontradas")
-        return result
-    except Exception as e:
-        return {"error": f"Error al ejecutar la consulta paradas_filtro_locode: {str(e)}"}
-    
-
-@router.get("/paradas/pais/{pais}")
-async def ver_paradas_pais(    
-    pais: str,
-    limit: int = Query(500, ge=1),  # Número de resultados por página, por defecto 50
-    offset: int = Query(0, ge=0)  # Índice de inicio, por defecto 0
+    limit: int = Query(500, ge=1),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db)
 ):
-    query = """
-                SELECT t.id as id_tracking,b.code AS bl_code, t.orden, t.status, p.locode, p.pais, p.lugar,
-               t.is_pol, t.is_pod
-                from tracking t
-                join paradas p on p.id = t.id_parada
-                join bls b on b.id = t.id_bl
-                where p.pais like :pais 
-                order by t.orden
-                LIMIT :limit OFFSET :offset;
-            """
-    pais = pais.upper()
-    pais = f"{pais}%"
+    stmt = (
+        select(
+            Tracking.id.label("id_tracking"),
+            BL.code.label("bl_code"),
+            Tracking.orden,
+            Tracking.status,
+            Paradas.locode,
+            Paradas.pais,
+            Paradas.lugar,
+            Tracking.is_pol,
+            Tracking.is_pod
+        )
+        .join(BL, Tracking.id_bl == BL.id)
+        .join(Paradas, Tracking.id_parada == Paradas.id)
+        .where(BL.code.ilike(f"{bl_code.upper()}%"))
+        .order_by(Tracking.orden)
+        .limit(limit)
+        .offset(offset)
+    )
     try:
-        result = await database.fetch_all(query=query, values={"pais": pais, "limit": limit, "offset": offset})
-        if not result:
+        result = await db.execute(stmt)
+        rows = result.all()
+        if not rows:
             raise HTTPException(status_code=404, detail="Paradas no encontradas")
-        return result
+        response = [dict(row._mapping) for row in rows]
+        return response
     except Exception as e:
-        return {"error": f"Error al ejecutar la consulta paradas_filtro_pais: {str(e)}"}
-    
+        raise HTTPException(status_code=500, detail=f"Error al ejecutar la consulta paradas_filtro_bl_code: {str(e)}")
+
+# ------------------------------
+# GET: Filtrar paradas por locode
+# ------------------------------
+@router.get("/paradas/locode/{locode}")
+async def ver_paradas_by_locode(
+    locode: str,
+    limit: int = Query(500, ge=1),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = (
+        select(
+            Tracking.id.label("id_tracking"),
+            BL.code.label("bl_code"),
+            Tracking.orden,
+            Tracking.status,
+            Paradas.locode,
+            Paradas.pais,
+            Paradas.lugar,
+            Tracking.is_pol,
+            Tracking.is_pod
+        )
+        .join(Paradas, Tracking.id_parada == Paradas.id)
+        .join(BL, Tracking.id_bl == BL.id)
+        .where(Paradas.locode.ilike(f"{locode.upper()}%"))
+        .order_by(Tracking.orden)
+        .limit(limit)
+        .offset(offset)
+    )
+    try:
+        result = await db.execute(stmt)
+        rows = result.all()
+        if not rows:
+            raise HTTPException(status_code=404, detail="Paradas no encontradas")
+        response = [dict(row._mapping) for row in rows]
+        return response
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al ejecutar la consulta paradas_filtro_locode: {str(e)}")
+
+# ------------------------------
+# GET: Filtrar paradas por pais
+# ------------------------------
+@router.get("/paradas/pais/{pais}")
+async def ver_paradas_by_pais(
+    pais: str,
+    limit: int = Query(500, ge=1),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = (
+        select(
+            Tracking.id.label("id_tracking"),
+            BL.code.label("bl_code"),
+            Tracking.orden,
+            Tracking.status,
+            Paradas.locode,
+            Paradas.pais,
+            Paradas.lugar,
+            Tracking.is_pol,
+            Tracking.is_pod
+        )
+        .join(Paradas, Tracking.id_parada == Paradas.id)
+        .join(BL, Tracking.id_bl == BL.id)
+        .where(Paradas.pais.ilike(f"{pais.upper()}%"))
+        .order_by(Tracking.orden)
+        .limit(limit)
+        .offset(offset)
+    )
+    try:
+        result = await db.execute(stmt)
+        rows = result.all()
+        if not rows:
+            raise HTTPException(status_code=404, detail="Paradas no encontradas")
+        response = [dict(row._mapping) for row in rows]
+        return response
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al ejecutar la consulta paradas_filtro_pais: {str(e)}")
+
+# ------------------------------
+# PATCH: Actualización parcial de paradas (usando ORM)
+# ------------------------------
 @router.patch("/paradas/{locode}")
 async def actualizar_parcial_parada(
     locode: str,
-    pais: str = Query(None),
-    lugar: str = Query(None),
+    pais: Optional[str] = Query(None),
+    lugar: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db)
 ):
-    # Construir las consultas dinámicamente
-    fields_paradas = []
-    values_paradas = {}
-
     if not locode:
         raise HTTPException(status_code=400, detail="Debe escribir un locode")
-    
-    if locode: values_paradas = {"locode": locode}
-
+    stmt = select(Paradas).where(Paradas.locode == locode.upper())
+    result = await db.execute(stmt)
+    parada_instance = result.scalars().first()
+    if not parada_instance:
+        raise HTTPException(status_code=404, detail="Parada no encontrada")
     if pais is not None:
-        pais = pais.upper()   
-        fields_paradas.append("pais = :pais")
-        values_paradas["pais"] = pais
-
+        parada_instance.pais = pais.upper()
     if lugar is not None:
-        lugar = lugar.upper()
-        fields_paradas.append("lugar = :lugar")
-        values_paradas["lugar"] = lugar
+        parada_instance.lugar = lugar.upper()
+    try:
+        await db.commit()
+        await db.refresh(parada_instance)
+        return {"message": "Actualización realizada con éxito"}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al actualizar paradas: {str(e)}")
 
-    # Validar que al menos un campo se proporcionó
-    if not fields_paradas:
-        raise HTTPException(status_code=400, detail="No se proporcionaron campos para actualizar")
-
-    # Bandera para saber si algo fue actualizado
-    filas_actualizadas = 0
-
-    # Ejecutar la consulta para la tabla paradas si hay campos
-    if fields_paradas:  
-        query_paradas = f"""
-        UPDATE paradas
-        SET {', '.join(fields_paradas)}
-        WHERE locode = :locode
-        RETURNING id;
-        """           
-        # Ejecutar la consulta
-        resultado_p = await database.execute(query=query_paradas, values=values_paradas)
-        if resultado_p: filas_actualizadas += 1
-        print(f"Resultado del update paradas: {resultado_p}")
-
-    # Validar si se actualizaron filas
-    if filas_actualizadas == 0:
-        raise HTTPException(status_code=400, detail="No se pudo actualizar nada")
-
-    return {"message": "Actualización realizada con éxito"}
-
-
+# ------------------------------
+# PATCH: Actualización parcial de tracking (usando ORM)
+# ------------------------------
 @router.patch("/tracking/{id_tracking}")
-async def actualizar_parcial_parada(
+async def actualizar_parcial_tracking(
     id_tracking: int,
-    orden: int = Query(None),
-    status: str = Query(None),
-    locode: str = Query(None),
-    is_pol: bool = Query(None),
-    is_pod: bool = Query(None),
+    orden: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+    locode: Optional[str] = Query(None),
+    is_pol: Optional[bool] = Query(None),
+    is_pod: Optional[bool] = Query(None),
+    db: AsyncSession = Depends(get_db)
 ):
-    # Construir las consultas dinámicamente
-    fields_tracking = []
-    values_tracking = {"id_tracking": id_tracking}
-    fields_paradas = []
-    values_paradas = {"id_tracking": id_tracking}
-
-
-    # Campos para la tabla tracking
+    stmt = select(Tracking).where(Tracking.id == id_tracking)
+    result = await db.execute(stmt)
+    tracking_instance = result.scalars().first()
+    if not tracking_instance:
+        raise HTTPException(status_code=404, detail="Tracking no encontrado")
     if orden is not None:
-        if type(orden) != int:
-            raise HTTPException(status_code=400, detail="La orden debe ser un numero.")
-        if orden <0:
-            raise HTTPException(status_code=400, detail="La orden debe ser un numero POSITIVO.")
-        fields_tracking.append("orden = :orden")
-        values_tracking["orden"] = orden
-
+        if not isinstance(orden, int) or orden < 0:
+            raise HTTPException(status_code=400, detail="La orden debe ser un número positivo.")
+        tracking_instance.orden = orden
     if status is not None:
-        status = status.upper()
-        if type(status) != str:
-            raise HTTPException(status_code=400, detail="El status debe ser una cadena de texto.")
-        fields_tracking.append("status = :status")
-        values_tracking["status"] = status
-    
+        tracking_instance.status = status.upper()
     if is_pol is not None:
-        fields_tracking.append("is_pol = :is_pol")
-        values_tracking["is_pol"] = is_pol  
+        tracking_instance.is_pol = is_pol
     if is_pod is not None:
-        fields_tracking.append("is_pod = :is_pod")
-        values_tracking["is_pod"] = is_pod  
-
-    # Campos para la tabla paradas
+        tracking_instance.is_pod = is_pod
     if locode is not None:
-        check_locode = "SELECT id FROM paradas where locode = :locode"
-        ayuda_locode = await database.fetch_val(check_locode, {"locode": locode})
-        if ayuda_locode == 0 or ayuda_locode is None:
+        stmt_locode = select(Paradas).where(Paradas.locode == locode.upper())
+        result_locode = await db.execute(stmt_locode)
+        parada_instance = result_locode.scalars().first()
+        if not parada_instance:
             raise HTTPException(status_code=400, detail="El locode no existe en la tabla 'paradas'.")
-        fields_paradas.append("id_parada = :ayuda_locode")
-        values_paradas["ayuda_locode"] = ayuda_locode
+        tracking_instance.id_parada = parada_instance.id
+    try:
+        await db.commit()
+        await db.refresh(tracking_instance)
+        return {"message": "Actualización realizada con éxito"}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al actualizar tracking: {str(e)}")
 
-
-    # Validar que al menos un campo se proporcionó
-    if not fields_tracking and not fields_paradas:
-        raise HTTPException(status_code=400, detail="No se proporcionaron campos para actualizar")
-
-    # Bandera para saber si algo fue actualizado
-    filas_actualizadas = 0
-
-    # Ejecutar la consulta para la tabla tracking si hay campos
-    if fields_tracking:
-        query_tracking = f"""
-            UPDATE tracking
-            SET {', '.join(fields_tracking)}
-            WHERE id = :id_tracking
-            RETURNING id;
-        """
-        # Ejecutar la consulta
-        resultado_t = await database.execute(query=query_tracking, values=values_tracking)
-        if resultado_t : filas_actualizadas += 1
-        print(f"Resultado del update tracking: {resultado_t}")
-    # Ejecutar la consulta para la tabla paradas si hay campos
-    if fields_paradas:
-        query_paradas = f"""
-            UPDATE tracking
-            SET {', '.join(fields_paradas)}
-            WHERE id = :id_tracking
-            RETURNING id;
-        """
-        # Ejecutar la consulta
-        resultado_p = await database.execute(query=query_paradas, values=values_paradas)
-        if resultado_p: filas_actualizadas += 1
-        print(f"Resultado del update paradas: {resultado_p}")
-
-    # Validar si se actualizaron filas
-    if filas_actualizadas == 0:
-        raise HTTPException(status_code=400, detail="No se pudo actualizar nada")
-
-    return {"message": "Actualización realizada con éxito"}
-
+# ------------------------------
+# POST: Insertar una nueva parada (usando ORM)
+# ------------------------------
 @router.post("/paradas/")
 async def insertar_parada(
     locode: str,
-    pais: str = Query(None),
-    lugar: str = Query(None),
+    pais: Optional[str] = Query(None),
+    lugar: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db)
 ):
-    """
-    Endpoint para insertar un nuevo registro en la tabla paradas.
-    """
+    if not locode:
+        raise HTTPException(status_code=400, detail="El campo 'locode' es obligatorio.")
+    locode = locode.upper()
+    stmt_check = select(Paradas).where(Paradas.locode == locode)
+    result_check = await db.execute(stmt_check)
+    existing = result_check.scalars().first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"El locode ya existe, id: {existing.id}")
+    pais = pais.upper() if pais else "DESCONOCIDO"
+    lugar = lugar.upper() if lugar else "DESCONOCIDO"
+    new_parada = Paradas(locode=locode, pais=pais, lugar=lugar)
+    db.add(new_parada)
     try:
-        # Validar parámetros obligatorios
-        if not locode :
-            raise HTTPException(
-                status_code=400,
-                detail="El campo 'locode' es obligatorio."
-            )
-        locode = locode.upper()
-        query_locode = "SELECT id from paradas where locode = :locode"
-        verificar_locode = await database.fetch_val(query_locode, {"locode":locode})
-        if verificar_locode !=0 and verificar_locode != None:
-            raise HTTPException(status_code=400, detail=f"El locode ya existe, id:{verificar_locode}")
-        
-        if pais is None:pais = "DESCONOCIDO"
-        if lugar is None:pais = "DESCONOCIDO"
-
-        pais = pais.upper()
-        lugar = lugar.upper()
-
-        print("datos:",locode," ",pais," ",lugar)
-        # Consulta SQL para insertar el registro en la tabla 'bls'
-        query_paradas = """
-            INSERT INTO paradas (
-                locode, pais, lugar
-            ) VALUES (
-                :locode, :pais, :lugar
-            )
-            RETURNING id;
-        """
-
-        # Valores para la consulta
-        values_parada = {
-            "locode": locode,
-            "pais": pais,
-            "lugar": lugar,
-        }
-
-        # Ejecutar la consulta
-        id_parada = await database.execute(query=query_paradas, values=values_parada)
-
-        if not id_parada:
-            raise HTTPException(status_code=500, detail="Error al insertar en paradas, no hay id_parada.")
-
-        return {"message": "Registro creado exitosamente en la tabla 'paradas'.", "id_parada": id_parada}
-
+        await db.commit()
+        await db.refresh(new_parada)
+        return {"message": "Registro creado exitosamente en paradas", "id_parada": new_parada.id}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al insertar el registro en 'paradas': {str(e)}")
-    
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al insertar parada: {str(e)}")
+
+# ------------------------------
+# POST: Insertar un nuevo tracking (usando ORM)
+# ------------------------------
 @router.post("/tracking/")
 async def insertar_tracking(
     bl_code: str,
     locode: str,
     fecha: str,
-    orden: int = Query(None),
-    terminal: str = Query(None),
-    status: str = Query(None),
-    is_pol: bool = Query(None),
-    is_pod: bool = Query(None),
+    orden: Optional[int] = Query(None),
+    terminal: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    is_pol: Optional[bool] = Query(None),
+    is_pod: Optional[bool] = Query(None),
+    db: AsyncSession = Depends(get_db)
 ):
-    """
-    Endpoint para insertar un nuevo registro en la tabla tracking.
-    """
+    if not locode or not bl_code or not fecha:
+        raise HTTPException(status_code=400, detail="Los campos 'locode', 'bl_code' y 'fecha' son obligatorios.")
+    locode = locode.upper()
+    stmt_locode = select(Paradas).where(Paradas.locode == locode)
+    result_locode = await db.execute(stmt_locode)
+    parada_instance = result_locode.scalars().first()
+    if not parada_instance:
+        raise HTTPException(status_code=400, detail="El locode no existe")
+    bl_code = bl_code.upper()
+    stmt_bl = select(BL).where(BL.code == bl_code)
+    result_bl = await db.execute(stmt_bl)
+    bl_instance = result_bl.scalars().first()
+    if not bl_instance:
+        raise HTTPException(status_code=400, detail="El bl_code no existe")
+    orden = orden if orden is not None else 0
+    is_pod = is_pod if is_pod is not None else False
+    is_pol = is_pol if is_pol is not None else False
+    status = status if status is not None else "DESCONOCIDO"
+    terminal = terminal if terminal is not None else "DESCONOCIDO"
     try:
-        # Validar parámetros obligatorios
-        if not locode or not bl_code or not fecha:
-            raise HTTPException(
-                status_code=400,
-                detail="Los campos 'locode, fecha y bl_code' son obligatorios."
-            )
-        locode = locode.upper()
-        query_locode = "SELECT id from paradas where locode = :locode"
-        verificar_locode = await database.fetch_val(query_locode, {"locode":locode})
-        if verificar_locode == None:
-            raise HTTPException(status_code=400, detail=f"El locode no existe")
-        
-        bl_code = bl_code.upper()
-        query_bl_code = "SELECT id from bls where code = :bl_code"
-        verificar_bl_code = await database.fetch_val(query_bl_code, {"bl_code":bl_code})
-        if verificar_bl_code == None:
-            raise HTTPException(status_code=400, detail=f"El bl_code no existe")
-        
-        if orden is None:orden = 0
-        if is_pod is None:is_pod = False
-        if is_pol is None:is_pol = False
-        if status is None:status = "DESCONOCIDO"
-        if terminal is None:terminal = "DESCONOCIDO"
-
-        # Convertir 'fecha' a tipo datetime
-        try:
-            fecha = datetime.strptime(fecha, "%Y-%m-%d")
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail="Formato de 'fecha' inválido. Use el formato YYYY-MM-DD."
-            )
-
-        # Consulta SQL para insertar el registro en la tabla 'bls'
-        query_tracking = """
-            INSERT INTO tracking (
-                id_bl, fecha, status, orden, 
-                id_parada,terminal, is_pol,is_pod
-            ) VALUES (
-                :verificar_bl_code, :fecha, :status, :orden,
-                :verificar_locode, :terminal, :is_pol, :is_pod
-            )
-            RETURNING id;
-        """
-        
-
-    # Ejecutar la consulta
-        id_tracking = await database.fetch_val(query_tracking, {
-            "verificar_bl_code": verificar_bl_code,
-            "fecha": fecha,
-            "status": status,
-            "orden": orden,
-            "verificar_locode": verificar_locode,
-            "terminal": terminal,
-            "is_pol": is_pol,
-            "is_pod": is_pod
-        })
-
-        if not id_tracking:
-            raise HTTPException(status_code=500, detail="Error al insertar en tracking.")
-
-        return {"message": "Registro creado exitosamente en la tabla 'tracking'.", "id_tracking": id_tracking}
-
+        fecha_dt = datetime.strptime(fecha, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de 'fecha' inválido. Use YYYY-MM-DD.")
+    new_tracking = Tracking(
+        id_bl=bl_instance.id,
+        fecha=fecha_dt,
+        status=status,
+        orden=orden,
+        id_parada=parada_instance.id,
+        terminal=terminal,
+        is_pol=is_pol,
+        is_pod=is_pod
+    )
+    db.add(new_tracking)
+    try:
+        await db.commit()
+        await db.refresh(new_tracking)
+        return {"message": "Registro creado exitosamente en tracking", "id_tracking": new_tracking.id}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al insertar el registro en 'tracking': {str(e)}")
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al insertar tracking: {str(e)}")

@@ -1,17 +1,20 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
-from database import database
-#from rutas.bls_endpoints import cargar_navieras 
-from rutas import bls_endpoints, containers_endpoints, requests_endpoints, paradas_endpoints,validaciones_endpoints,autenticacion, scraper, orden_endpoint
+from rutas import (
+    bls_endpoints,
+    containers_endpoints,
+    requests_endpoints,
+    paradas_endpoints,
+    validaciones_endpoints,
+    autenticacion,
+    scraper,
+    orden_endpoint
+)
 
 app = FastAPI()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-#origins = [
-#    "http://localhost:3000",  #  URL del front-end
-#    "http://192.168.x.x:3000",  # IP de la maquina del front
-#]
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,17 +23,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Conectar la base de datos
-@app.on_event("startup")
-async def startup():
-    await database.connect()
-
-# Desconectar la base de datos
-@app.on_event("shutdown")
-async def shutdown():
-    await database.disconnect()
-
 
 # Registrar rutas
 app.include_router(bls_endpoints.router)
@@ -44,15 +36,11 @@ app.include_router(orden_endpoint.router)
 
 @app.get("/")
 def leer_raiz():
-    
     return {
-        "mensaje":"Bienvenido a Brains",
-        "info":ver_info()
+        "mensaje": "Bienvenido a Brains",
+        "info": ver_info()
     }
 
-#-------------------------------
-#----------INFORMACIÓN----------
-#-------------------------------
 @app.get("/info")
 def ver_info():
     mensaje = {
