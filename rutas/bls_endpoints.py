@@ -1,14 +1,15 @@
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, logger
 from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import func, desc, asc, extract
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from pydantic import BaseModel
+from sqlalchemy.orm import joinedload
 
 #from rutas.autenticacion import check_rol, get_current_user
 from models import User, BL, Etapa, Naviera, StatusBL
-from database import get_db  # get_db debe retornar un AsyncSession
+from database import get_db
 
 router = APIRouter()
 
@@ -22,15 +23,28 @@ def safe_strftime(date_obj):
         return None
 
 def bl_to_dict(bl: BL) -> dict:
-    return {
-        "id": bl.id,
-        "bl_code": bl.code,  # Usamos bl_code para coincidir con el front
-        "etapa": bl.etapa.nombre if bl.etapa else None,
-        "naviera": bl.naviera.nombre if bl.naviera else None,
-        "status": bl.status.descripcion_status if bl.status else None,
-        "fecha": safe_strftime(bl.fecha),
-        "fecha_proxima_revision": safe_strftime(bl.proxima_revision)
-    }
+    try:
+        return {
+            "id": bl.id,
+            "bl_code": bl.code,  # Usamos bl_code para coincidir con el front
+            "etapa": bl.etapa.nombre if bl.etapa else None,
+            "naviera": bl.naviera.nombre if bl.naviera else None,
+            "status": bl.status.descripcion_status if bl.status else "Not Found pendiente de revisión",  # Default status
+            "fecha": safe_strftime(bl.fecha),
+            "fecha_proxima_revision": safe_strftime(bl.proxima_revision)
+        }
+    except Exception as e:
+        logger.error(f"Error in bl_to_dict for BL {bl.code}: {str(e)}")
+        # Fallback with minimal data
+        return {
+            "id": bl.id,
+            "bl_code": bl.code,
+            "etapa": None,
+            "naviera": None,
+            "status": "Not Found pendiente de revisión",  # Default status
+            "fecha": None,
+            "fecha_proxima_revision": None
+        }
 
 # ------------------------------
 # Esquema Pydantic para la salida de BLs
@@ -206,13 +220,32 @@ async def ver_bls_id(
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db)
 ):
-    stmt = select(BL).join(BL.etapa).join(BL.naviera).join(BL.status)\
+    try:
+        stmt = select(
+            BL.id,
+            BL.code.label("bl_code"),
+            func.coalesce(func.to_char(BL.fecha, 'YYYY-MM-DD'), None).label("fecha"),
+            func.coalesce(func.to_char(BL.proxima_revision, 'YYYY-MM-DD'), None).label("fecha_proxima_revision"),
+            Etapa.nombre.label("etapa"),
+            Naviera.nombre.label("naviera"),
+            StatusBL.descripcion_status.label("status")
+        ).join(BL.etapa).join(BL.naviera).join(BL.status)\
         .where(BL.id == id).limit(limit).offset(offset)
-    result = await db.execute(stmt)
-    bls = result.scalars().all()
-    if not bls:
-        raise HTTPException(status_code=404, detail="ID de BL no encontrado")
-    return [bl_to_dict(bl) for bl in bls]
+
+        result = await db.execute(stmt)
+        rows = result.all()
+        
+        if not rows:
+            raise HTTPException(status_code=404, detail="ID de BL no encontrado")
+            
+        return [dict(row._mapping) for row in rows]  # Note the ._mapping here
+        
+    except ValueError as e:
+        logger.error(f"Error processing dates for BL ID {id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error processing dates in BL")
+    except Exception as e:
+        logger.error(f"Error fetching BL ID {id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving BL")
 
 # ------------------------------
 # GET: BLs por Código
@@ -224,13 +257,37 @@ async def ver_bls_code(
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db)
 ):
-    stmt = select(BL).join(BL.etapa).join(BL.naviera).join(BL.status)\
+    try:
+        stmt = select(
+            BL.id,
+            BL.code.label("bl_code"),
+            func.coalesce(func.to_char(BL.fecha, 'YYYY-MM-DD'), None).label("fecha"),
+            func.coalesce(func.to_char(BL.proxima_revision, 'YYYY-MM-DD'), None).label("fecha_proxima_revision"),
+            func.coalesce(Etapa.nombre, None).label("etapa"),
+            func.coalesce(Naviera.nombre, None).label("naviera"),
+            func.coalesce(StatusBL.descripcion_status, None).label("status")
+        ).outerjoin(BL.etapa).outerjoin(BL.naviera).outerjoin(BL.status)\
         .where(BL.code.ilike(f"{code}%")).limit(limit).offset(offset)
-    result = await db.execute(stmt)
-    bls = result.scalars().all()
-    if not bls:
-        raise HTTPException(status_code=404, detail="Código de BL no encontrado")
-    return [bl_to_dict(bl) for bl in bls]
+
+        result = await db.execute(stmt)
+        rows = result.all()
+        
+        if not rows:
+            raise HTTPException(status_code=404, detail="Código de BL no encontrado")
+            
+        return [{
+            "id": row.id,
+            "bl_code": row.bl_code,
+            "etapa": row.etapa,
+            "naviera": row.naviera,
+            "status": row.status,
+            "fecha": row.fecha,
+            "fecha_proxima_revision": row.fecha_proxima_revision
+        } for row in rows]
+        
+    except Exception as e:
+        logger.error(f"Error fetching BL code {code}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving BL")
 
 # ------------------------------
 # GET: BLs por Naviera
@@ -242,13 +299,38 @@ async def ver_bls_naviera(
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db)
 ):
-    stmt = select(BL).join(BL.etapa).join(BL.naviera).join(BL.status)\
-        .where(Naviera.nombre.ilike(f"{nombre.upper()}%")).limit(limit).offset(offset)
-    result = await db.execute(stmt)
-    bls = result.scalars().all()
-    if not bls:
-        raise HTTPException(status_code=404, detail="Naviera de BL no encontrada")
-    return [bl_to_dict(bl) for bl in bls]
+    try:
+        stmt = select(
+            BL.id,
+            BL.code.label("bl_code"),
+            func.coalesce(func.to_char(BL.fecha, 'YYYY-MM-DD'), None).label("fecha"),
+            func.coalesce(func.to_char(BL.proxima_revision, 'YYYY-MM-DD'), None).label("fecha_proxima_revision"),
+            func.coalesce(Etapa.nombre, None).label("etapa"),
+            Naviera.nombre.label("naviera"),
+            func.coalesce(StatusBL.descripcion_status, None).label("status")
+        ).outerjoin(BL.etapa).outerjoin(BL.naviera).outerjoin(BL.status)\
+        .where(Naviera.nombre.ilike(f"{nombre.upper()}%"))\
+        .limit(limit).offset(offset)
+
+        result = await db.execute(stmt)
+        rows = result.all()
+        
+        if not rows:
+            raise HTTPException(status_code=404, detail="Naviera de BL no encontrada")
+            
+        return [{
+            "id": row.id,
+            "bl_code": row.bl_code,
+            "etapa": row.etapa,
+            "naviera": row.naviera,
+            "status": row.status,
+            "fecha": row.fecha,
+            "fecha_proxima_revision": row.fecha_proxima_revision
+        } for row in rows]
+        
+    except Exception as e:
+        logger.error(f"Error fetching BL naviera {nombre}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving BL")
 
 # ------------------------------
 # PATCH: Actualización parcial de BLs
@@ -329,20 +411,20 @@ async def insertar_bls(
     no_revisar: Optional[bool] = Query(None),
     revisado_hoy: Optional[bool] = Query(None),
     html_descargado: Optional[bool] = Query(None),
-    #current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    #check_rol(current_user, [1])
     stmt_naviera = select(Naviera).where(Naviera.nombre.ilike(f"{naviera.upper()}%"))
     res_naviera = await db.execute(stmt_naviera)
     naviera_instance = res_naviera.scalars().first()
     if not naviera_instance:
         raise HTTPException(status_code=404, detail="Naviera no encontrada")
+
     stmt_etapa = select(Etapa).where(Etapa.nombre.ilike(f"{etapa.upper()}%"))
     res_etapa = await db.execute(stmt_etapa)
     etapa_instance = res_etapa.scalars().first()
     if not etapa_instance:
         raise HTTPException(status_code=404, detail="Etapa no encontrada")
+
     try:
         fecha_dt = datetime.strptime(fecha, "%Y-%m-%d")
     except ValueError:
@@ -351,8 +433,9 @@ async def insertar_bls(
         proxima_revision_dt = datetime.strptime(proxima_revision, "%Y-%m-%d")
     except ValueError:
         raise HTTPException(status_code=400, detail="Formato de 'proxima_revision' inválido. Use YYYY-MM-DD.")
+
     new_bl = BL(
-        code=code,
+        code=code.upper(),
         id_naviera=naviera_instance.id,
         id_etapa=etapa_instance.id,
         fecha=fecha_dt,
@@ -364,16 +447,29 @@ async def insertar_bls(
         no_revisar=no_revisar,
         revisado_hoy=revisado_hoy,
         html_descargado=html_descargado,
-        id_status=18,  # Valor por defecto (ajusta según corresponda)
-        id_carga=211   # Valor por defecto (ajusta según corresponda)
+        id_status=18,
+        id_carga=211
     )
-    db.add(new_bl)
+    
     try:
+        db.add(new_bl)
         await db.commit()
-        await db.refresh(new_bl)
-        return bl_to_dict(new_bl)
+        
+        # Despues de commit, recargar el BL con todas sus relaciones
+        stmt = select(BL).options(
+            joinedload(BL.etapa),
+            joinedload(BL.naviera),
+            joinedload(BL.status)
+        ).where(BL.id == new_bl.id)
+        
+        result = await db.execute(stmt)
+        loaded_bl = result.unique().scalar_one()
+        
+        return bl_to_dict(loaded_bl)
+        
     except Exception as e:
         await db.rollback()
+        logger.error(f"Error al insertar el BL: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error al insertar el BL: {str(e)}")
 
 # ------------------------------
