@@ -11,7 +11,7 @@ import json
 from database import get_db
 from models import BL, Naviera, StatusBL, Etapa, HTMLDescargado, RespuestaRequest, Request
 from .bls_endpoints import bl_to_dict
-from .test_agent import TestAgent  # Importar solo el agente de prueba por ahora
+#from .test_agent import TestAgent  # Importar solo el agente de prueba por ahora
 
 # Comentar los agentes reales por ahora
 # from app.agents.maersk_zen import AgenteMaerskZen
@@ -30,14 +30,14 @@ router = APIRouter(
 )
 
 # Modificar el mapeo de agentes para usar solo TestAgent
-AGENT_MAPPING = {
-    "MAERSK": TestAgent,
-    "HAPAG-LLOYD": TestAgent,
-    "MSC": TestAgent,
-    "CMA": TestAgent,
-    "ONE": TestAgent,
-    "COSCO": TestAgent,
-}
+#AGENT_MAPPING = {
+ #   "MAERSK": TestAgent,
+ #   "HAPAG-LLOYD": TestAgent,
+  #  "MSC": TestAgent,
+  #  "CMA": TestAgent,
+   # "ONE": TestAgent,
+   # "COSCO": TestAgent,
+#}
 
 async def get_bls_for_routine(
     db: AsyncSession,

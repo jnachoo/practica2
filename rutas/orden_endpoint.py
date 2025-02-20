@@ -102,7 +102,6 @@ async def superfiltro_orden_descargas(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error ejecutando la consulta orden descarga: {str(e)}")
 
-
 @router.patch("/orden_descarga/")
 async def orden_descarga_editar(
     id_orden: int,
@@ -188,11 +187,13 @@ async def orden_descarga_editar(
         raise HTTPException(status_code=500, detail=f"Error al actualizar orden descarga: {str(e)}")
 
 
+
+
 @router.post("/orden_descarga/")
 async def orden_descarga_crear(
     nombre_usuario: str,
     fecha_creacion: str,
-    fecha_programacion: str,
+    fecha_programacion: Optional[str] = None,  # Ahora es opcional
     descripcion: Optional[str] = None,
     enviar_correo: bool = Query(False, description="Indica si se enviará correo al finalizar la orden"),
     detalles: Optional[str] = Query(
@@ -203,26 +204,31 @@ async def orden_descarga_crear(
         )
     ),
     db: AsyncSession = Depends(get_db)
-): 
+):
     query_usuario = "SELECT id FROM usuarios WHERE nombre_usuario ILIKE :nombre_usuario"
     result = await db.execute(text(query_usuario), {"nombre_usuario": f"{nombre_usuario}%"})
     id_usuario = result.scalar()
     if id_usuario is None:
         raise HTTPException(status_code=404, detail=f"Usuario {nombre_usuario} no encontrado")
 
-    if not (nombre_usuario and fecha_creacion and fecha_programacion):
+    # Solo se validan los campos obligatorios: nombre_usuario y fecha_creacion
+    if not (nombre_usuario and fecha_creacion):
         raise HTTPException(
             status_code=400, 
-            detail="Los campos nombre_usuario, fecha_creacion y fecha_programacion son obligatorios"
+            detail="Los campos nombre_usuario y fecha_creacion son obligatorios"
         )
     try:
         fecha_creacion_dt = datetime.strptime(fecha_creacion, "%Y-%m-%d %H:%M:%S")
     except ValueError:
         raise HTTPException(status_code=400, detail="Formato de 'fecha_creacion' inválido. Use YYYY-MM-DD HH:MM:SS")
-    try:
-        fecha_programacion_dt = datetime.strptime(fecha_programacion, "%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Formato de 'fecha_programacion' inválido. Use YYYY-MM-DD HH:MM:SS")
+    
+    if fecha_programacion:
+        try:
+            fecha_programacion_dt = datetime.strptime(fecha_programacion, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de 'fecha_programacion' inválido. Use YYYY-MM-DD HH:MM:SS")
+    else:
+        fecha_programacion_dt = None
 
     query_orden = """
         INSERT INTO orden_descargas (
@@ -270,7 +276,6 @@ async def orden_descarga_crear(
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al insertar el registro en orden descargas: {str(e)}")
 
-
 @router.delete("/orden_descarga/")
 async def delete_orden_descarga(
     id: int = Query(..., description="ID de la orden a eliminar"),
@@ -293,19 +298,9 @@ async def delete_orden_descarga(
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al eliminar la orden de descarga: {str(e)}")
 
-
 @router.post("/orden_descarga/execute")
 async def execute_order(
     order_id: int = Query(..., description="ID de la orden a ejecutar"),
-    navieras: Optional[str] = Query(None, description="Lista de navieras separadas por coma"),
-    dia: Optional[int] = Query(None, description="Día del campo fecha_bl"),
-    mes: Optional[int] = Query(None, description="Mes del campo fecha_bl"),
-    anio: Optional[int] = Query(None, description="Año del campo fecha_bl"),
-    bls: Optional[str] = Query(None, description="Lista de BLs (separadas por coma)"),
-    diario: bool = Query(False, description="Flag: diario"),
-    semanal: bool = Query(False, description="Flag: semanal"),
-    mensual: bool = Query(False, description="Flag: mensual"),
-    csv: bool = Query(False, description="Flag: csv"),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_db)
 ):
@@ -404,7 +399,8 @@ async def create_orden_detalle(
         if not new_record:
             raise HTTPException(status_code=500, detail="Error al crear registro en orden_detalle")
         await db.commit()
-        return {"mensaje": "Registro de orden_detalle creado exitosamente", "id": new_record["id"]}
+        # Accedemos al primer elemento de la tupla
+        return {"mensaje": "Registro de orden_detalle creado exitosamente", "id": new_record[0]}
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al crear registro en orden_detalle: {str(e)}")
@@ -443,11 +439,11 @@ async def update_orden_detalle(
         if not updated_record:
             raise HTTPException(status_code=404, detail="Registro de orden_detalle no encontrado")
         await db.commit()
-        return {"mensaje": "Registro de orden_detalle actualizado exitosamente", "id": updated_record["id"]}
+        # Accedemos al primer elemento de la tupla (índice 0)
+        return {"mensaje": "Registro de orden_detalle actualizado exitosamente", "id": updated_record[0]}
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al actualizar registro en orden_detalle: {str(e)}")
-
 
 @router.delete("/orden_detalle/")
 async def delete_orden_detalle(
@@ -461,11 +457,11 @@ async def delete_orden_detalle(
         if not deleted_record:
             raise HTTPException(status_code=404, detail="Registro de orden_detalle no encontrado")
         await db.commit()
-        return {"mensaje": "Registro de orden_detalle eliminado exitosamente", "id": deleted_record["id"]}
+        # Accedemos al primer elemento de la tupla (índice 0)
+        return {"mensaje": "Registro de orden_detalle eliminado exitosamente", "id": deleted_record[0]}
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al eliminar registro en orden_detalle: {str(e)}")
-
 
 async def get_bls(
     db: AsyncSession,
