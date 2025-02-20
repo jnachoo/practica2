@@ -9,7 +9,8 @@ from rutas import (
     validaciones_endpoints,
     autenticacion,
     scraper,
-    orden_endpoint
+    orden_endpoint,
+    rutina_endpoints
 )
 import logging
 
@@ -38,6 +39,7 @@ app.include_router(validaciones_endpoints.router)
 app.include_router(autenticacion.router)
 app.include_router(scraper.router)
 app.include_router(orden_endpoint.router)
+app.include_router(rutina_endpoints.router)
 
 @app.on_event("startup")
 async def startup_event():

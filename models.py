@@ -43,6 +43,7 @@ class Naviera(Base):
     url = Column(String(500))
     url2 = Column(String(500))
     id_maestro = Column(Integer)
+    tiempo_estimado_descarga = Column(Integer)
     
     # Relación inversa
     bls = relationship("BL", back_populates="naviera")

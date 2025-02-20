@@ -2,17 +2,40 @@
 
 from fastapi import APIRouter, HTTPException, Query, Depends, BackgroundTasks
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict
 import json
-from sqlalchemy import text
+from sqlalchemy import text, select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
+import math
+import logging
+from sqlalchemy.dialects.postgresql import insert
 
 from database import get_db  # Retorna un AsyncSession
 from rutas.autenticacion import check_rol, get_current_user
 from rutas.scraper_service import run_scraper_order
-from models import User  # Otros modelos se importan en models.py
+from models import (
+    BL,
+    OrdenDescarga,
+    OrdenDetalle,
+    Naviera,
+    StatusBL
+)
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
+
+# Valores de tiempo estándar por naviera (en minutos) para propósitos de prueba
+TIEMPO_ESTIMADO_NAVIERA = {
+    "MAERSK": 120,      # 120 minutos (2 horas) por cada 1000 BLs
+    "MSC": 150,         # 150 minutos (2.5 horas) por cada 1000 BLs
+    "COSCO": 140,       # 140 minutos por cada 1000 BLs
+    "EVERGREEN": 135,   # 135 minutos por cada 1000 BLs
+    "HAPAG-LLOYD": 130, # 130 minutos por cada 1000 BLs
+    "ONE": 145,         # 145 minutos por cada 1000 BLs
+    "CMA-CGM": 138,     # 138 minutos por cada 1000 BLs
+    "DEFAULT": 120      # Por defecto: 120 minutos por cada 1000 BLs
+}
 
 # ===============================
 # Endpoints para Orden Descargas
@@ -442,3 +465,280 @@ async def delete_orden_detalle(
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al eliminar registro en orden_detalle: {str(e)}")
+
+
+async def get_bls(
+    db: AsyncSession,
+    navieras: List[int],
+    fecha_inicio: str,
+    fecha_termino: str,
+    estados: List[int],
+    bls: List[str] = None  # Estos son los códigos BL
+) -> List[int]:
+    try:
+        fecha_inicio_dt = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
+        fecha_termino_dt = datetime.strptime(fecha_termino, "%Y-%m-%d").date()
+        
+        logger.info(f"Buscando BLs con criterios:")
+        logger.info(f"Navieras: {navieras}")
+        logger.info(f"Estados: {estados}")
+        logger.info(f"Fecha inicio: {fecha_inicio_dt}")
+        logger.info(f"Fecha término: {fecha_termino_dt}")
+        if bls:
+            logger.info(f"BLs específicos: {bls}")
+
+        # Todas las condiciones se combinan con AND
+        conditions = [
+            BL.id_naviera.in_(navieras),  # Cualquiera de estas navieras
+            BL.id_status.in_(estados),     # Y cualquiera de estos estados
+            BL.fecha.between(fecha_inicio_dt, fecha_termino_dt)  # Y dentro del rango de fechas
+        ]
+        
+        if bls:
+            conditions.append(BL.code.in_(bls))  # Cambiado de bl_code a code para coincidir con el modelo
+
+        # Obtener los IDs de los BLs que coinciden
+        query = select(BL.id).where(and_(*conditions))
+
+        result = await db.execute(query)
+        ids = [row[0] for row in result.fetchall()]
+        
+        if not ids:
+            logger.warning("No se encontraron BLs con los criterios especificados")
+            
+        return ids
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Formato de fecha inválido. Use YYYY-MM-DD: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error en get_bls: {str(e)}")
+        raise
+
+async def add_orden(
+    db: AsyncSession,
+    id_orden: int,
+    ids_bls: List[int]
+) -> None:
+    """
+    Inserta registros en orden_detalle usando bulk insert
+    """
+    try:
+        values = [
+            {"id_cabecera": id_orden, "id_bls": bl_id}
+            for bl_id in ids_bls
+        ]
+        stmt = insert(OrdenDetalle).values(values)
+        await db.execute(stmt)
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error en add_orden: {str(e)}")
+        raise
+
+async def summary_order(
+    db: AsyncSession,
+    id_order: int
+) -> List[Dict]:
+    """
+    Genera resumen de BLs por naviera con tiempos estimados
+    Fórmula: (nbls/1000 * estimado_naviera) en minutos
+    Ejemplo: 
+    - Si hay 2500 BLs y estimado_naviera es 120 minutos
+    - (2500/1000 * 120) = 2.5 * 120 = 300 minutos
+    """
+    try:
+        query = select(
+            Naviera.nombre,
+            func.count(BL.id).label('cantidad')
+        ).join(
+            OrdenDetalle, OrdenDetalle.id_bls == BL.id
+        ).join(
+            Naviera, Naviera.id == BL.id_naviera
+        ).where(
+            OrdenDetalle.id_cabecera == id_order
+        ).group_by(
+            Naviera.nombre
+        )
+        
+        result = await db.execute(query)
+        summary = []
+        
+        for row in result:
+            naviera, cantidad = row
+            # Obtener tiempo estándar para la naviera (valor por defecto si no se encuentra)
+            tiempo_base = TIEMPO_ESTIMADO_NAVIERA.get(naviera.upper(), TIEMPO_ESTIMADO_NAVIERA["DEFAULT"])
+            # Calcular tiempo estimado: (nbls/1000 * estimado_naviera)
+            tiempo_estimado = math.ceil((cantidad / 1000) * tiempo_base)
+            
+            logger.info(f"""
+                Cálculo para {naviera}:
+                - Cantidad BLs: {cantidad}
+                - Factor (cantidad/1000): {cantidad/1000}
+                - Tiempo base (minutos): {tiempo_base}
+                - Tiempo estimado (minutos): {tiempo_estimado}
+            """)
+            
+            summary.append({
+                "naviera": naviera,
+                "cantidad_bls": cantidad,
+                "tiempo_estimado": tiempo_estimado
+            })
+        
+        await db.commit()  
+        return summary
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error en summary_order: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error al generar resumen: {str(e)}")
+
+@router.post("/orden/crear")
+async def crear_orden(orden_data: Dict, db: AsyncSession = Depends(get_db)):
+    """
+    Crear orden de descarga con los siguientes parámetros:
+    - id_orden: ID de la orden
+    - navieras: Lista de navieras separadas por coma (ej: "MAERSK, MSC, COSCO")
+    - estados: Lista de estados separados por coma
+    - fecha_inicio: Fecha inicio en formato YYYY-MM-DD
+    - fecha_termino: Fecha término en formato YYYY-MM-DD
+    - bls: Lista de códigos BL separados por coma (ej: "HLCUXM12410AVQV2, MSCUAB123456789")
+    """
+    try:
+        # Obtener IDs de navieras desde sus nombres
+        navieras_list = [nav.strip().upper() for nav in orden_data["navieras"].split(",")]
+        query_navieras = select(Naviera.id, Naviera.nombre).where(Naviera.nombre.in_(navieras_list))
+        result = await db.execute(query_navieras)
+        navieras_found = result.fetchall()
+        
+        if not navieras_found:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No se encontraron navieras con los nombres: {navieras_list}"
+            )
+        
+        ids_navieras = [row[0] for row in navieras_found]
+        nombres_encontrados = [row[1] for row in navieras_found]
+        
+        # Registrar navieras no encontradas
+        navieras_no_encontradas = set(navieras_list) - set(nombres_encontrados)
+        if navieras_no_encontradas:
+            logger.warning(f"Navieras no encontradas: {navieras_no_encontradas}")
+
+        # Obtener IDs de estados desde sus descripciones (coincidencia exacta de la base de datos)
+        estados_list = [estado.strip() for estado in orden_data["estados"].split(",")]
+        query_estados = select(StatusBL.id, StatusBL.descripcion_status).where(
+            StatusBL.descripcion_status.in_(estados_list)
+        )
+        result = await db.execute(query_estados)
+        estados_found = result.fetchall()
+        
+        if not estados_found:
+            # Obtener todos los estados disponibles para un mejor mensaje de error
+            query_all_estados = select(StatusBL.descripcion_status)
+            result = await db.execute(query_all_estados)
+            estados_disponibles = [row[0] for row in result.fetchall()]
+            
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"No se encontraron estados con las descripciones: {estados_list}.\n"
+                    f"Estados disponibles:\n" + "\n".join(f"- {estado}" for estado in estados_disponibles)
+                )
+            )
+
+        ids_estados = [row[0] for row in estados_found]
+        estados_encontrados = [row[1] for row in estados_found]
+        
+        # Registrar estados no encontrados
+        estados_no_encontrados = set(estados_list) - set(estados_encontrados)
+        if estados_no_encontrados:
+            logger.warning(f"Estados no encontrados: {estados_no_encontrados}")
+
+        # Convertir cadena de códigos BL a lista y normalizar
+        bls_list = [bl.strip().upper() for bl in orden_data["bls"].split(",") if bl.strip()]
+        if bls_list:
+            logger.info(f"Lista de códigos BL a buscar: {bls_list}")
+
+        # Obtener BLs que coincidan con los criterios
+        ids_bls = await get_bls(
+            db=db,
+            navieras=ids_navieras,
+            fecha_inicio=orden_data["fecha_inicio"],
+            fecha_termino=orden_data["fecha_termino"],
+            estados=ids_estados,
+            bls=bls_list if bls_list else None
+        )
+
+        if not ids_bls:
+            raise HTTPException(
+                status_code=404,
+                detail="No se encontraron BLs con los criterios especificados"
+            )
+
+        # Agregar a orden_detalle
+        await add_orden(
+            db=db,
+            id_orden=orden_data["id_orden"],
+            ids_bls=ids_bls
+        )
+
+        return {
+            "mensaje": "Orden creada exitosamente",
+            "id_orden": orden_data["id_orden"],
+            "cantidad_bls": len(ids_bls),
+            "detalles": {
+                "navieras_encontradas": {
+                    "total": len(ids_navieras),
+                    "nombres": nombres_encontrados,
+                    "no_encontradas": list(navieras_no_encontradas) if navieras_no_encontradas else []
+                },
+                "estados_encontrados": {
+                    "total": len(ids_estados),
+                    "descripciones": estados_encontrados,
+                    "no_encontrados": list(estados_no_encontrados) if estados_no_encontrados else []
+                },
+                "bls_procesados": len(ids_bls)
+            }
+        }
+
+    except Exception as e:
+        await db.rollback()
+        if isinstance(e, HTTPException):
+            raise e
+        logger.error(f"Error en crear_orden: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/orden/{id_orden}/resumen")
+async def obtener_resumen_orden(
+    id_orden: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Obtiene el resumen de una orden con estimaciones de tiempo por naviera
+    """
+    try:
+        # Verificar que la orden existe
+        orden = await db.execute(
+            select(OrdenDescarga).where(OrdenDescarga.id == id_orden)
+        )
+        if not orden.scalar():
+            raise HTTPException(status_code=404, detail="Orden no encontrada")
+            
+        # Obtener resumen
+        resumen = await summary_order(db, id_orden)
+        
+        # Calcular tiempo total estimado
+        tiempo_total = sum(item["tiempo_estimado"] for item in resumen)
+        
+        return {
+            "id_orden": id_orden,
+            "resumen_por_naviera": resumen,
+            "tiempo_total_estimado": tiempo_total
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
